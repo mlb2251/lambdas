@@ -179,7 +179,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
     pub fn eval_child(&self, child: Id, env: &mut [LazyVal<D>]) -> VResult<D> {
         if let Some((start_time, duration)) = &self.start_and_timelimit {
             if start_time.elapsed() >= *duration {
-                return Err(format!("Eval Timeout"));
+                return Err("Eval Timeout".to_string());
             }
         }
         let val = match self.expr.nodes[usize::from(child)] {

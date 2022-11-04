@@ -9,9 +9,12 @@ macro_rules! define_semantics {
         lazy_static::lazy_static! {
 
         static ref DSL_ENTRIES: $crate::DSL<$domain> = {
+            #[allow(clippy::vec_init_then_push)]
+            {
             let mut entries = vec![];
             dsl_entries!{$domain; entries; $($rest)*};
             DSL::new(entries)
+            }
         };
 
         static ref LOOKUP_FN_PTR: HashMap<Symbol,$crate::DSLFn<$domain>> = {

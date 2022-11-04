@@ -107,7 +107,7 @@ impl RawTypeRef {
 
     /// iterates over all nodes in the term of this type
     pub fn iter_arrows<'a>(&self, typeset: &'a TypeSet) -> ArrowIterTypeRef<'a> {
-        ArrowIterTypeRef { curr: *self, typeset: typeset }
+        ArrowIterTypeRef { curr: *self, typeset }
     }
 
     /// iterates over uncurried argument types of this arrow type
@@ -138,7 +138,7 @@ impl RawTypeRef {
     pub fn max_var(&self, typeset: &TypeSet) -> Option<usize> {
         match self.resolve(typeset) {
             TNode::Var(i) => Some(*i),
-            TNode::Term(_, _) => self.iter_term_args(typeset).map(|ty| ty.max_var(typeset)).filter_map(|x|x).max(),
+            TNode::Term(_, _) => self.iter_term_args(typeset).filter_map(|ty| ty.max_var(typeset)).max(),
             TNode::ArgCons(_,_) => panic!("is_concrete on an ArgCons")
         }
     }
@@ -175,7 +175,7 @@ impl TypeRef {
 
     /// canonicalizes any toplevel variable away then resolves the resulting raw type ref. Note that
     /// the TNode returned here will not be shifted
-    pub fn resolve<'a>(&self, typeset: &'a TypeSet) -> TNode {
+    pub fn resolve(&self, typeset: &TypeSet) -> TNode {
         let canonical = self.canonicalize(typeset);
         let resolved = canonical.raw.resolve(typeset);
         match resolved {
@@ -835,11 +835,8 @@ impl std::fmt::Display for Context {
 
 impl Expr {
     pub fn infer<D: Domain>(&self, child: Option<Id>, ctx: &mut Context, env: &mut VecDeque<Type>) -> Result<Type,UnifyErr> {
-        // if ctx.subst.is_empty() {
-        //     assert!(env.is_empty(), "if anything has been added to the env, it must have already been added to the ctx otherwise")
-        // }
         // println!("infer({})", self.to_string_uncurried(child));
-        let child = child.unwrap_or(self.root());
+        let child = child.unwrap_or_else(||self.root());
         match &self.nodes[usize::from(child)] {
             Lambda::App([f,x]) => {
                 let return_tp = ctx.fresh_type_var();

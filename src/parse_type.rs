@@ -63,8 +63,8 @@ fn parse_aux(mut s: &str) -> Result<(Type, &str), String> {
         s = s_new;
 
         // check if it's a var like t0 t23 etc
-        if item.starts_with('t') {
-            if let Ok(i) = item[1..].parse::<usize>() {
+        if let Some(rest) = item.strip_prefix('t') {
+            if let Ok(i) = rest.parse::<usize>() {
                 res.push(Type::Var(i));
                 continue
             }
