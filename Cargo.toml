@@ -4,6 +4,8 @@ version = "0.1.0"
 authors = ["Matthew Bowers <mlbowers@mit.edu>", "Theo X. Olausson <theoxo@mit.edu>"]
 edition = "2018"
 license = "MIT"
+description = "A library for defining domain specific languages in a polymorphic lambda calculus"
+repository = "https://github.com/mlb2251/lambdas"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
