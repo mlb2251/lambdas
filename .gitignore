@@ -1,0 +1,6 @@
+target
+Cargo.lock
+.vscode
+*.svg
+.DS_Store
+perf.data
