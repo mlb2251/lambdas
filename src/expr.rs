@@ -1,5 +1,6 @@
 use crate::*;
 use crate::parse_expr::{curry_sexp,uncurry_sexp};
+use std::collections::HashMap;
 use std::fmt::{self, Formatter, Display, Debug};
 use std::hash::Hash;
 use sexp::Sexp;
@@ -321,10 +322,9 @@ impl Expr {
         ProgramDepth{}.cost_rec(self.into())
     }
     /// returns expr depth as per `ProgramCost`
-    pub fn cost(&self) -> i32 {
-        ProgramCost{}.cost_rec(self.into())
+    pub fn cost(&self, cost: &ProgramCost) -> i32 {
+        cost.cost(self, self.root())
     }
-
 
     /// Returns a subexpression cloned out of this one with new root `child`.
     /// Generally you want to avoid this because
@@ -414,36 +414,73 @@ impl Expr {
     }
 }
 
-// todo REMOVE THESE
-const COST_NONTERMINAL:i32 = 1;
-const COST_TERMINAL:i32 = 100;
 
 
 /// the cost of a program, where `app` and `lam` cost 1, `programs` costs nothing,
 /// `ivar` and `var` and `prim` cost 100.
-pub struct ProgramCost {}
-impl CostFunction<Lambda> for ProgramCost {
-    type Cost = i32;
-    fn cost<C>(&mut self, enode: &Lambda, mut costs: C) -> Self::Cost
-    where
-        C: FnMut(Id) -> Self::Cost
+#[derive(Debug,Clone)]
+pub struct ProgramCost {
+    cost_lam: i32,
+    cost_app: i32,
+    cost_var: i32,
+    cost_ivar: i32,
+    cost_prim: HashMap<Symbol,i32>,
+    cost_prim_default: i32,
+}
+
+impl ProgramCost
+{
+    pub fn new(cost_lam: i32, cost_app: i32, cost_var: i32, cost_ivar: i32, cost_prim: HashMap<Symbol,i32>, cost_prim_default: i32 ) -> ProgramCost {
+        ProgramCost { cost_lam, cost_app, cost_var, cost_ivar, cost_prim, cost_prim_default }
+    }
+    pub fn cost(&self, expr: &Expr, child: Id) -> i32
     {
-        match enode {
-            Lambda::Var(_) | Lambda::IVar(_) | Lambda::Prim(_) => COST_TERMINAL,
+        match &expr.get(child) {
+            Lambda::IVar(_) => self.cost_ivar,
+            Lambda::Var(_) => self.cost_var,
+            Lambda::Prim(p) => *self.cost_prim.get(p).unwrap_or(&self.cost_prim_default),
             Lambda::App([f, x]) => {
-                COST_NONTERMINAL + costs(*f) + costs(*x)
+                self.cost_app + self.cost(expr, *f) + self.cost(expr, *x)
             }
             Lambda::Lam([b]) => {
-                COST_NONTERMINAL + costs(*b)
+                self.cost_lam + self.cost(expr, *b)
             }
             Lambda::Programs(ps) => {
                 ps.iter()
-                .map(|p|costs(*p))
+                .map(|p|self.cost(expr, *p))
                 .sum()
             }
         }
     }
+
 }
+
+// impl<F> CostFunction<Lambda> for ProgramCost<F>
+// where F: Fn(Symbol) -> i32
+// {
+//     type Cost = i32;
+//     fn cost<C>(&mut self, enode: &Lambda, mut costs: C) -> Self::Cost
+//     where
+//         C: FnMut(Id) -> Self::Cost
+//     {
+//         match enode {
+//             Lambda::IVar(_) => self.cost_ivar,
+//             Lambda::Var(_) => self.cost_var,
+//             Lambda::Prim(p) => (self.cost_prim) (*p),
+//             Lambda::App([f, x]) => {
+//                 self.cost_app + costs(*f) + costs(*x)
+//             }
+//             Lambda::Lam([b]) => {
+//                 self.cost_lam + costs(*b)
+//             }
+//             Lambda::Programs(ps) => {
+//                 ps.iter()
+//                 .map(|p|costs(*p))
+//                 .sum()
+//             }
+//         }
+//     }
+// }
 
 /// depth of a program. For example a leaf is depth 1.
 pub struct ProgramDepth {}
