@@ -9,6 +9,7 @@ mod parse_expr;
 mod types;
 mod util;
 pub mod domains;
+mod alt_expr;
 
 pub use {
     egg::*,
