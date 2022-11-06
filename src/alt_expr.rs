@@ -7,8 +7,6 @@ use std::cmp::{min,max};
 
 
 pub type Idx = usize;
-pub const HOLE: usize = usize::MAX;
-
 
 /// A node of an untyped lambda calculus expression compatible with `egg` but also used more widely throughout this crate.
 /// Note that there is no domain associated with this object. This makes it easy to run compression on
@@ -36,6 +34,9 @@ pub enum Node where
     App(Idx,Idx), // f, x
     Lam(Idx), // body
 }
+
+pub const HOLE: Idx = usize::MAX;
+
 
 /// An untyped lambda calculus expression, much like `egg::RecExpr` but with a public `nodes` field
 /// and many attached functions. See `Lambda` for details on the individual nodes.
@@ -125,6 +126,8 @@ impl ExprSet {
             spans.push(span);
         }
         self.nodes.push(node);
+
+        debug_assert!(self.get(idx).node_order_safe());
         idx
     }
     fn get(&self, idx: Idx) -> Expr {
@@ -158,20 +161,20 @@ impl<'a> Expr<'a> {
     fn iter_span(&self) -> impl ExactSizeIterator<Item=Idx> {
         self.get_span().unwrap().into_iter()
     }
-    pub fn cost_span(&self, cost_fn: &ProgramCost) -> i32 {
+    pub fn cost_span(&self, cost_fn: &ExprCost) -> i32 {
         let res = self.iter_span().map(|i|
             match self.set.get(i).node() {
                 Node::IVar(_) => cost_fn.cost_ivar,
                 Node::Var(_) => cost_fn.cost_var,
                 Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
-                Node::App(f, x) => cost_fn.cost_app,
-                Node::Lam(b) => cost_fn.cost_lam,
+                Node::App(_, _) => cost_fn.cost_app,
+                Node::Lam(_) => cost_fn.cost_lam,
             }).sum::<i32>();
         debug_assert_eq!(res, self.cost_rec(cost_fn));
         res
     }
 
-    pub fn cost_rec(&self, cost_fn: &ProgramCost) -> i32 {
+    pub fn cost_rec(&self, cost_fn: &ExprCost) -> i32 {
         match self.node() {
             Node::IVar(_) => cost_fn.cost_ivar,
             Node::Var(_) => cost_fn.cost_var,
@@ -223,6 +226,22 @@ impl<'a> Expr<'a> {
 
         (self.idx as i32 + shift) as usize
     }
+
+    pub fn node_order_safe(&self) -> bool {
+        match self.get(self.idx).node() {
+            Node::Prim(_) | Node::Var(_) | Node::IVar(_) => true,
+            Node::App(f, x) => match self.set.order {
+                Order::ChildFirst => (*f == HOLE || *f < self.idx) && (*x == HOLE || *x < self.idx),
+                Order::ParentFirst => (*f == HOLE || *f > self.idx) && (*x == HOLE || *x > self.idx),
+                Order::Any => *f != self.idx && *x != self.idx,
+            },
+            Node::Lam(b) => match self.set.order {
+                Order::ChildFirst => *b == HOLE || *b < self.idx,
+                Order::ParentFirst => *b == HOLE || *b > self.idx,
+                Order::Any => *b != self.idx,
+            },
+        }
+    }
 }
 
 impl<'a> ExprMut<'a> {
@@ -238,9 +257,47 @@ impl<'a> ExprMut<'a> {
     fn node(&mut self) -> &mut Node {
         &mut self.set[self.idx]
     }
-    fn as_expr(self) -> Expr<'a> {
-        let ExprMut {set, idx} = self;
-        Expr {set, idx}
+    fn immut(&'a self) -> Expr<'a> {
+        // let ExprMut {set, idx} = self;
+        Expr {set: self.set, idx: self.idx}
+    }
+    fn expand_left(&mut self, idx: Idx) {
+        debug_assert_ne!(self.idx,idx, "creating self loop: {}", self.immut());
+        match self.node() {
+            Node::App(x,_) => {
+                if *x == HOLE {
+                    *x = idx
+                } else {
+                    panic!("invalid expand_left() on non-hole: {:?}", self.node())
+                }
+            },
+            _ => panic!("invalid expand_left() on non-app: {:?}", self.node())
+        }
+        debug_assert!(self.immut().node_order_safe());
+    }
+    fn expand(&mut self, idx: Idx) {
+        debug_assert_ne!(self.idx,idx, "creating self loop: {}", self.immut());
+        match self.node() {
+            Node::App(x,y) => {
+                if *x == HOLE {
+                    panic!("invalid expand() on an app that has a left hole: {:?}",self.node())
+                }
+                if *y == HOLE {
+                    *y = idx
+                } else {
+                    panic!("invalid expand() on non-hole: {:?}",self.node())
+                }
+            },
+            Node::Lam(b) => {
+                if *b == HOLE {
+                    *b = idx
+                } else {
+                    panic!("invalid expand() on non-hole: {:?}", self.node())
+                }
+            }
+            _ => panic!("invalid expand() on non-app: {:?}", self.node())
+        }
+        debug_assert!(self.immut().node_order_safe());
     }
 }
 
@@ -270,13 +327,26 @@ impl<'a> ExprMut<'a> {
 /// the cost of a program, where `app` and `lam` cost 1, `programs` costs nothing,
 /// `ivar` and `var` and `prim` cost 100.
 #[derive(Debug,Clone)]
-pub struct ProgramCost {
+pub struct ExprCost {
     cost_lam: i32,
     cost_app: i32,
     cost_var: i32,
     cost_ivar: i32,
     cost_prim: HashMap<egg::Symbol,i32>,
     cost_prim_default: i32,
+}
+
+impl ExprCost {
+    fn dreamcoder() -> ExprCost {
+        ExprCost {
+            cost_lam: 1,
+            cost_app: 1,
+            cost_var: 100,
+            cost_ivar: 100,
+            cost_prim: HashMap::new(),
+            cost_prim_default: 100,
+        }
+    }
 }
 
 
@@ -526,7 +596,7 @@ mod tests {
         // lifetime woes and allow for mutation and reading interleaved as shown
         // here
         for i in set.get(e1).iter_span() {
-            let bonus = set.iter().len() as i32;
+            let bonus = set.len() as i32;
             match set.get_mut(i).node() {
                 Node::Var(i) => {*i += bonus},
                 _ => {}
@@ -541,6 +611,29 @@ mod tests {
         let e3_new = set.get(e3).copy_span(other_set);
         assert_eq!(set.get(e3).to_string(), other_set.get(e3_new).to_string());
 
+        // top down grow (+ 2 (lam 3)) ie (app (app + 2) 3)
+        // notice we use ParentFirst
+        let e = &mut ExprSet::empty(Order::ParentFirst, false);
+        // (app (app + ??) (lam ??))
+        let app1 = e.add(Node::App(HOLE,HOLE));
+        let app2 = e.add(Node::App(HOLE,HOLE));
+        let plus = e.add(Node::Prim("+".into()));
+        let lam = e.add(Node::Lam(HOLE));
+        e.get_mut(app1).expand_left(app2);
+        e.get_mut(app2).expand_left(plus);
+        e.get_mut(app1).expand(lam);
+
+        // (app (app + 2) (lam ??))
+        let two = e.add(Node::Prim("2".into()));
+        e.get_mut(app2).expand(two);
+
+        // (app (app + 2) (lam 3))
+        let three = e.add(Node::Prim("3".into()));
+        e.get_mut(lam).expand(three);
+
+        // println!("{:?}",e);
+        assert_eq!(e.get(app1).to_string(), "(+ 2 (lam 3))");
+        // e.get(app1).to_string();
 
 
 
