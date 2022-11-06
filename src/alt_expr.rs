@@ -1,10 +1,11 @@
-use core::num;
+use core::{num, panic};
 // use crate::*;
 // use crate::parse_expr::{curry_sexp,uncurry_sexp};
 use std::collections::HashMap;
 use std::fmt::{self, Formatter, Display, Debug};
 use std::hash::Hash;
 use std::ops::{Index, IndexMut, Range};
+use std::path::Iter;
 use serde::{Serialize, Deserialize};
 use std::cmp::{min,max};
 
@@ -33,11 +34,11 @@ pub const HOLE: usize = usize::MAX;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Node where
 {
-    Var(i32), // db index ($i)
     Prim(egg::Symbol), // primitive (eg functions, constants, all nonvariable leaf nodes)
+    Var(i32), // db index ($i)
+    IVar(i32),
     App(Idx,Idx), // f, x
     Lam(Idx), // body
-    IVar(i32)
 }
 
 /// An untyped lambda calculus expression, much like `egg::RecExpr` but with a public `nodes` field
@@ -63,8 +64,9 @@ pub enum Node where
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExprSet {
     pub nodes: Vec<Node>,
-    pub subtree_spans: Option<Vec<Range<Idx>>>,
-    pub order: Order
+    pub spans: Option<Vec<Range<Idx>>>,
+    pub order: Order,
+    // pub span_cfg: Spans
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -112,14 +114,21 @@ impl IndexMut<Range<Idx>> for ExprSet {
     }
 }
 
+// #[derive(Eq,PartialEq, Debug, Clone, Serialize, Deserialize)]
+// pub enum Spans {
+//     None,
+//     Approx,
+//     Exact
+// }
+
 impl ExprSet {
-    fn empty(order: Order, subtree_spans: bool) -> ExprSet {
-        let subtree_spans = if subtree_spans { Some(vec![]) } else { None };
-        ExprSet { nodes: vec![], order, subtree_spans }
+    fn empty(order: Order, spans: bool) -> ExprSet {
+        let spans = if spans { Some(vec![]) } else { None };
+        ExprSet { nodes: vec![], spans, order }
     }
     fn add(&mut self, node: Node) -> Idx {
         let idx = self.nodes.len();
-        if let Some(spans) = &mut self.subtree_spans {
+        if let Some(spans) = &mut self.spans {
             let span = match node {
                 Node::Var(_) | Node::Prim(_) | Node::IVar(_) => idx .. idx+1,
                 Node::App(f, x) => min(min(spans[f].start,spans[x].start),idx) .. max(max(spans[f].end,spans[x].end),idx+1),
@@ -136,14 +145,95 @@ impl ExprSet {
     fn get_mut(&mut self, idx: Idx) -> ExprMut {
         ExprMut { set: self, idx }
     }
+    // fn get_span(&self, idx: Idx) -> Option<Range<Idx>> {
+    //     self.spans.as_ref().map(|spans| spans.get(idx).unwrap().clone())
+    // }
+    // fn iter_span(&self, idx: Idx) -> impl ExactSizeIterator<Item=Idx> {
+    //     self.get_span(idx).unwrap().into_iter()
+    // }
+    fn iter(&self) -> impl ExactSizeIterator<Item=Idx> {
+        (0..self.nodes.len()).into_iter()
+    }
 }
+
 
 impl<'a> Expr<'a> {
     fn get(&self, idx: Idx) -> Self {
         Self { set: self.set, idx }
     }
+    fn get_node(&'a self, idx: Idx) -> &'a Node {
+        &self.set[idx]
+    }
     fn node(&self) -> &Node {
         &self.set[self.idx]
+    }
+    fn get_span(&self) -> Option<Range<Idx>> {
+        self.set.spans.as_ref().map(|spans| spans.get(self.idx).unwrap().clone())
+    }
+    fn iter_span(&self) -> impl ExactSizeIterator<Item=Idx> {
+        self.get_span().unwrap().into_iter()
+    }
+    pub fn cost_span(&self, cost_fn: &ProgramCost) -> i32 {
+        self.iter_span().map(|i|
+            match self.set.get(i).node() {
+                Node::IVar(_) => cost_fn.cost_ivar,
+                Node::Var(_) => cost_fn.cost_var,
+                Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
+                Node::App(f, x) => cost_fn.cost_app,
+                Node::Lam(b) => cost_fn.cost_lam,
+            }).sum::<i32>()
+    }
+
+    pub fn cost_rec(&self, cost_fn: &ProgramCost) -> i32 {
+        match self.node() {
+            Node::IVar(_) => cost_fn.cost_ivar,
+            Node::Var(_) => cost_fn.cost_var,
+            Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
+            Node::App(f, x) => {
+                cost_fn.cost_app + self.get(*f).cost_rec(cost_fn) + self.get(*x).cost_rec(cost_fn)
+            }
+            Node::Lam(b) => {
+                cost_fn.cost_lam + self.get(*b).cost_rec(cost_fn)
+            }
+        }
+    }
+
+    pub fn copy_span(&self, other_set: &mut ExprSet) {
+        let shift: i32 = other_set.iter().len() as i32 - self.get_span().unwrap().start as i32;
+        // extend everything on while shfiting it
+        other_set.nodes.extend(self.iter_span().map(|i| {
+            let node = self.get_node(i);
+            match node {
+                Node::Prim(_) | Node::Var(_) | Node::IVar(_) => node.clone(),
+                Node::App(f, x) => Node::App((*f as i32 + shift) as usize, (*x as i32 + shift) as usize),
+                Node::Lam(b) => Node::Lam((*b as i32 + shift) as usize),
+            }
+        }));
+
+        // shift all the spans and extend them on
+        if let Some(other_spans) = &mut other_set.spans {
+            other_spans.extend(self.iter_span().map(|i| {
+                let span = self.get(i).get_span().unwrap();
+                (span.start as i32 + shift) as usize .. (span.end as i32 + shift) as usize
+            }))
+        }
+
+        // reverse order if we have opposite orders
+        if self.set.order == Order::ChildFirst && other_set.order == Order::ParentFirst
+            || self.set.order == Order::ParentFirst && other_set.order == Order::ChildFirst
+        {
+            let len = other_set.nodes.len();
+            other_set.nodes[len - self.iter_span().len()..].reverse();
+            if let Some(other_spans) = &mut other_set.spans {
+                other_spans[len - self.iter_span().len()..].reverse();
+            }
+        }
+
+        // ensure if we're Any then they are not Any
+        if self.set.order == Order::Any && other_set.order != Order::Any {
+            panic!("breaking order invariant")
+        }
+
     }
 }
 
@@ -151,10 +241,60 @@ impl<'a> ExprMut<'a> {
     fn get(&mut self, idx: Idx) -> ExprMut {
         ExprMut { set: self.set, idx }
     }
+    fn get_node(&'a self, idx: Idx) -> &'a Node {
+        &self.set[idx]
+    }
+    fn get_node_mut(&'a mut self, idx: Idx) -> &'a mut Node {
+        &mut self.set[idx]
+    }
     fn node(&mut self) -> &mut Node {
         &mut self.set[self.idx]
     }
+    fn as_expr(self) -> Expr<'a> {
+        let ExprMut {set, idx} = self;
+        Expr {set, idx}
+    }
 }
+
+// struct ExprIter<'a> {
+//     curr: Expr<'a>,
+//     iters: Vec<ExprIter<'a>>
+// }
+
+// impl<'a> Iterator for ExprIter<'a> {
+//     type Item = Expr<'a>;
+
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if !self.iters.is_empty() {
+//             iters.first
+//         }
+//         match self.curr.node() {
+//             Node::Var(_) => Some(self.curr),
+//             Node::Prim(_) => Some(self.curr),
+//             Node::App(f, x) => todo!(),
+//             Node::Lam(b) => ExprIter { curr: Expr { self.curr.set,  } },
+//             Node::IVar(_) => Some(self.curr),
+//         }
+//     }
+// }
+
+
+/// the cost of a program, where `app` and `lam` cost 1, `programs` costs nothing,
+/// `ivar` and `var` and `prim` cost 100.
+#[derive(Debug,Clone)]
+pub struct ProgramCost {
+    cost_lam: i32,
+    cost_app: i32,
+    cost_var: i32,
+    cost_ivar: i32,
+    cost_prim: HashMap<egg::Symbol,i32>,
+    cost_prim_default: i32,
+}
+
+
+
+
+
 
 
 /// printing a single node prints the operator
@@ -197,6 +337,10 @@ impl<'a> Display for Expr<'a> {
         fmt_local(*self, false, f)
     }
 }
+
+
+
+
 
 
 impl ExprSet {
@@ -333,27 +477,27 @@ impl ExprSet {
         if self.order == Order::ParentFirst {
             self.nodes[init_len..].reverse();
         }
-        Ok((items.pop().unwrap()))
+        Ok(items.pop().unwrap())
     }
 }
 
-impl std::str::FromStr for ExprSet {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // assume uncurried string
-        let mut set = ExprSet::empty(Order::ChildFirst, false);
-        set.parse_extend(s)?;
-        Ok(set)
-    }
-}
+// impl std::str::FromStr for ExprSet {
+//     type Err = String;
+//     fn from_str(s: &str) -> Result<Self, Self::Err> {
+//         // assume uncurried string
+//         let mut set = ExprSet::empty(Order::ChildFirst, Spans::None);
+//         set.parse_extend(s)?;
+//         Ok(set)
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn assert_parse(set: &mut ExprSet, in_s: &str, out_s: &str) {
-        let idx = set.parse_extend(in_s).unwrap();
-        assert_eq!(set.get(idx).to_string(), out_s.to_string());
+        let e = set.parse_extend(in_s).unwrap();
+        assert_eq!(set.get(e).to_string(), out_s.to_string());
     }
 
     #[test]
@@ -378,12 +522,40 @@ mod tests {
         assert_parse(set, "(lam (+ $0 b))", "(lam (+ $0 b))");
         assert_parse(set, "(lam (+ #0 b))", "(lam (+ #0 b))");
 
-        let idx = set.parse_extend("$3").unwrap();
-        assert_eq!(set.get(idx).node(), &Node::Var(3));
-        let idx = set.parse_extend("#3").unwrap();
-        assert_eq!(set.get(idx).node(), &Node::IVar(3));
+        let e = set.parse_extend("$3").unwrap();
+        assert_eq!(set.get(e).node(), &Node::Var(3));
+        let e = set.parse_extend("#3").unwrap();
+        assert_eq!(set.get(e).node(), &Node::IVar(3));
 
         assert_parse(set, "(fix_flip $0 (lam (lam (if (is_empty $0) $0 (cons (+ 1 (head $0)) ($1 (tail $0)))))))", "(fix_flip $0 (lam (lam (if (is_empty $0) $0 (cons (+ 1 (head $0)) ($1 (tail $0)))))))")
+
+    }
+
+    #[test]
+    fn test_expr_basics() {
+        let set = &mut ExprSet::empty(Order::ChildFirst, true);
+        
+        let e1 = set.parse_extend("(lam $0)").unwrap();
+        let e2 = set.parse_extend("(+ 4 4)").unwrap();
+
+        // bottom up style addition of a node
+        let e3 = set.add(Node::App(e1,e2));
+        assert_eq!(set.get(e3).to_string(), "((lam $0) (+ 4 4))".to_string());
+
+        // iterators tend to return Idxs instead of &'a references to avoid
+        // lifetime woes and allow for mutation and reading interleaved as shown
+        // here
+        for i in set.get(e1).iter_span() {
+            let bonus = set.iter().len() as i32;
+            match set.get_mut(i).node() {
+                Node::Var(i) => {*i += bonus},
+                _ => {}
+            }
+        }
+
+        assert_eq!(set.get(e3).to_string(), "((lam $8) (+ 4 4))".to_string());
+
+
 
     }
 }
