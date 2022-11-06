@@ -17,18 +17,20 @@ where T: FromVal<D> + Debug + PartialEq,
 pub fn assert_execution<D: Domain, T>(expr: &str, args: &[Val<D>], expected: T)
 where T: FromVal<D> + Debug + PartialEq,
 {
-    let e: Expr = expr.parse().unwrap();
+    let mut set = ExprSet::empty(Order::ChildFirst, false);
+    let e = set.parse_extend(expr).unwrap();
     let mut args: Vec<LazyVal<D>> = args.iter().map(|arg|LazyVal::new_strict(arg.clone())).collect();
-    let res = e.eval(e.root(), &mut args, None).unwrap();
+    let res = set.get(e).eval(&mut args, None).unwrap();
     assert_eq_val(&res,expected);
 }
 
 pub fn assert_error<D: Domain, T>(expr: &str, args: &[Val<D>], expected_error_msg: String)
 where T: FromVal<D> + Debug + PartialEq
 {
-    let e: Expr = expr.parse().unwrap();
+    let mut set = ExprSet::empty(Order::ChildFirst, false);
+    let e = set.parse_extend(expr).unwrap();
     let mut args: Vec<LazyVal<D>> = args.iter().map(|arg|LazyVal::new_strict(arg.clone())).collect();
-    let res = e.eval(e.root(),&mut args, None);
+    let res = set.get(e).eval(&mut args, None);
     assert!(res.is_err());
     assert_eq!(expected_error_msg, res.err().unwrap());
 }

@@ -1,7 +1,7 @@
 use core::panic;
 use std::{collections::VecDeque};
 use crate::parse_type;
-use crate::expr::{Expr,Lambda};
+use crate::expr::*;
 use crate::dsl::Domain;
 use egg::{Symbol,Id};
 use once_cell::sync::Lazy;
@@ -831,40 +831,38 @@ impl std::fmt::Display for Context {
 }
 
 
-impl Expr {
-    pub fn infer<D: Domain>(&self, child: Option<Id>, ctx: &mut Context, env: &mut VecDeque<Type>) -> Result<Type,UnifyErr> {
+impl<'a> Expr<'a> {
+    pub fn infer<D: Domain>(&self, ctx: &mut Context, env: &mut VecDeque<Type>) -> Result<Type,UnifyErr> {
         // println!("infer({})", self.to_string_uncurried(child));
-        let child = child.unwrap_or_else(||self.root());
-        match &self.nodes[usize::from(child)] {
-            Lambda::App([f,x]) => {
+        match self.node() {
+            Node::App(f,x) => {
                 let return_tp = ctx.fresh_type_var();
-                let x_tp = self.infer::<D>(Some(*x), ctx, env)?;
-                let f_tp = self.infer::<D>(Some(*f), ctx, env)?;
+                let x_tp = self.get(*x).infer::<D>(ctx, env)?;
+                let f_tp = self.get(*f).infer::<D>(ctx, env)?;
                 ctx.unify(&f_tp, &Type::arrow(x_tp, return_tp.clone()))?;
                 Ok(return_tp.apply(ctx))
             },
-            Lambda::Lam([b]) => {
+            Node::Lam(b) => {
                 let var_tp = ctx.fresh_type_var();
                 // todo maybe optimize by making this a vecdeque for faster insert/remove at the zero index
                 env.push_front(var_tp.clone());
-                let body_tp = self.infer::<D>(Some(*b), ctx, env)?;
+                let body_tp = self.get(*b).infer::<D>(ctx, env)?;
                 env.pop_front();
                 Ok(Type::arrow(var_tp, body_tp).apply(ctx))
             },
-            Lambda::Var(i) => {
+            Node::Var(i) => {
                 if (*i as usize) >= env.len() {
                     panic!("unbound variable encountered during infer(): ${}", i)
                 }
                 Ok(env[*i as usize].apply(ctx))
             },
-            Lambda::IVar(_i) => {
+            Node::IVar(_i) => {
                 // interesting, I guess we can have this and it'd probably be easy to do
                 unimplemented!();
             }
-            Lambda::Prim(p) => {
+            Node::Prim(p) => {
                 Ok(D::type_of_prim(*p).instantiate(ctx))
             },
-            Lambda::Programs(_) => panic!("trying to infer() type of Programs() node"),
         }
     }
 }
