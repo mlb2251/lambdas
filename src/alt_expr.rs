@@ -73,7 +73,7 @@ pub enum Order {
     Any
 }
 
-#[derive(Clone,Copy)]
+#[derive(Clone,Copy, Debug)]
 pub struct Expr<'a> {
     pub set: &'a ExprSet,
     pub idx: Idx 
