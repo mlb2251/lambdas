@@ -6,24 +6,20 @@ macro_rules! define_semantics {
         $($rest:tt)*
         // $($string:literal = ($fname:ident, $ty:literal) ),*
     ) => {
-        lazy_static::lazy_static! {
-
-        static ref DSL_ENTRIES: $crate::DSL<$domain> = {
+        static DSL_ENTRIES: once_cell::sync::Lazy<$crate::DSL<$domain>> = once_cell::sync::Lazy::new(|| {
             #[allow(clippy::vec_init_then_push)]
             {
             let mut entries = vec![];
             dsl_entries!{$domain; entries; $($rest)*};
             DSL::new(entries)
             }
-        };
+        });
 
-        static ref LOOKUP_FN_PTR: HashMap<Symbol,$crate::DSLFn<$domain>> = {
+        static LOOKUP_FN_PTR: once_cell::sync::Lazy<HashMap<Symbol,$crate::DSLFn<$domain>>> =  once_cell::sync::Lazy::new(|| {
             let mut entries = HashMap::new();
             fn_ptr_entries!{$domain; entries; $($rest)*};
             entries
-        };
-
-        }
+        });
     }
 }
 

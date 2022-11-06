@@ -4,6 +4,7 @@ use crate::parse_type;
 use crate::expr::{Expr,Lambda};
 use crate::dsl::Domain;
 use egg::{Symbol,Id};
+use once_cell::sync::Lazy;
 
 
 
@@ -401,10 +402,7 @@ impl TypeSet {
 
 
 
-
-lazy_static::lazy_static! {
-    static ref ARROW_SYM: egg::Symbol = Symbol::from(Type::ARROW);
-}
+static ARROW_SYM: Lazy<egg::Symbol> = Lazy::new(|| Symbol::from(Type::ARROW));
 
 impl Type {
     pub const ARROW: &'static str = "->";
