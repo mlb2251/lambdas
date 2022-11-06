@@ -140,6 +140,9 @@ impl ExprSet {
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
+    pub fn truncate(&mut self, len: usize) {
+        self.nodes.truncate(len);
+    }
     pub fn iter(&self) -> impl ExactSizeIterator<Item=Idx> {
         (0..self.nodes.len()).into_iter()
     }
@@ -409,6 +412,7 @@ mod tests {
         e.get_mut(app1).expand(lam);
 
         assert_eq!(e.get(app1).to_string(), "(+ ?? (lam ??))");
+        let len = e.len();
 
         // (app (app + 2) (lam ??))
         let two = e.add(Node::Prim("2".into()));
@@ -420,9 +424,17 @@ mod tests {
         let three = e.add(Node::Prim("3".into()));
         e.get_mut(lam).expand(three);
 
-        // println!("{:?}",e);
         assert_eq!(e.get(app1).to_string(), "(+ 2 (lam 3))");
-        // e.get(app1).to_string();
+
+        // roll back two steps to (app (app + ??) (lam ??))
+        e.truncate(len);
+        e.get_mut(lam).unexpand();
+        e.get_mut(app2).unexpand();
+
+        assert_eq!(e.get(app1).to_string(), "(+ ?? (lam ??))");
+
+        
+
 
 
 
