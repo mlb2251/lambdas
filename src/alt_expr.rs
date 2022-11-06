@@ -246,23 +246,23 @@ impl<'a> Expr<'a> {
 }
 
 impl<'a> ExprMut<'a> {
-    fn get(&mut self, idx: Idx) -> ExprMut {
+    pub fn get(&mut self, idx: Idx) -> ExprMut {
         ExprMut { set: self.set, idx }
     }
-    fn get_node(&'a self, idx: Idx) -> &'a Node {
+    pub fn get_node(&'a self, idx: Idx) -> &'a Node {
         &self.set[idx]
     }
-    fn get_node_mut(&'a mut self, idx: Idx) -> &'a mut Node {
+    pub fn get_node_mut(&'a mut self, idx: Idx) -> &'a mut Node {
         &mut self.set[idx]
     }
-    fn node(&mut self) -> &mut Node {
+    pub fn node(&mut self) -> &mut Node {
         &mut self.set[self.idx]
     }
-    fn immut(&'a self) -> Expr<'a> {
+    pub fn immut(&'a self) -> Expr<'a> {
         // let ExprMut {set, idx} = self;
         Expr {set: self.set, idx: self.idx}
     }
-    fn expand_left(&mut self, idx: Idx) {
+    pub fn expand_left(&mut self, idx: Idx) {
         match self.node() {
             Node::App(x,_) => {
                 assert_eq!(*x, HOLE, "invalid expand_left() on non-hole");
@@ -272,7 +272,7 @@ impl<'a> ExprMut<'a> {
         }
         debug_assert!(self.immut().node_order_safe());
     }
-    fn expand(&mut self, idx: Idx) {
+    pub fn expand(&mut self, idx: Idx) {
         match self.node() {
             Node::App(x,y) => {
                 assert_ne!(*x, HOLE, "invalid expand() on an app that has a left hole");
@@ -284,6 +284,21 @@ impl<'a> ExprMut<'a> {
                 *b = idx
             }
             _ => panic!("invalid expand() on non-lam non-app: {:?}", self.node())
+        }
+        debug_assert!(self.immut().node_order_safe());
+    }
+    pub fn unexpand(&mut self) {
+        match self.node() {
+            Node::App(x,y) => {
+                assert_ne!(*x, HOLE, "invalid unexpand() on an app that has a left hole");
+                assert_ne!(*y, HOLE, "invalid unexpand() on something that's already a hole");
+                *y = HOLE;
+            },
+            Node::Lam(b) => {
+                assert_ne!(*b, HOLE, "invalid unexpand() on something that's already a hole");
+                *b = HOLE
+            }
+            _ => panic!("invalid unexpand() on non-lam non-app: {:?}", self.node())
         }
         debug_assert!(self.immut().node_order_safe());
     }
