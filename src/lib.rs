@@ -10,6 +10,8 @@ mod types;
 mod util;
 pub mod domains;
 mod alt_expr;
+mod alt_expr_parse;
+
 
 pub use {
     egg::*,
@@ -18,4 +20,5 @@ pub use {
     eval::*,
     types::*,
     util::*,
+    alt_expr_parse::*,
 };
