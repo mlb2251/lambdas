@@ -1,11 +1,7 @@
-use core::{num, panic};
-// use crate::*;
-// use crate::parse_expr::{curry_sexp,uncurry_sexp};
 use std::collections::HashMap;
 use std::fmt::{self, Formatter, Display, Debug};
 use std::hash::Hash;
 use std::ops::{Index, IndexMut, Range};
-use std::path::Iter;
 use serde::{Serialize, Deserialize};
 use std::cmp::{min,max};
 
@@ -66,7 +62,6 @@ pub struct ExprSet {
     pub nodes: Vec<Node>,
     pub spans: Option<Vec<Range<Idx>>>,
     pub order: Order,
-    // pub span_cfg: Spans
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -114,13 +109,6 @@ impl IndexMut<Range<Idx>> for ExprSet {
     }
 }
 
-// #[derive(Eq,PartialEq, Debug, Clone, Serialize, Deserialize)]
-// pub enum Spans {
-//     None,
-//     Approx,
-//     Exact
-// }
-
 impl ExprSet {
     fn empty(order: Order, spans: bool) -> ExprSet {
         let spans = if spans { Some(vec![]) } else { None };
@@ -145,12 +133,9 @@ impl ExprSet {
     fn get_mut(&mut self, idx: Idx) -> ExprMut {
         ExprMut { set: self, idx }
     }
-    // fn get_span(&self, idx: Idx) -> Option<Range<Idx>> {
-    //     self.spans.as_ref().map(|spans| spans.get(idx).unwrap().clone())
-    // }
-    // fn iter_span(&self, idx: Idx) -> impl ExactSizeIterator<Item=Idx> {
-    //     self.get_span(idx).unwrap().into_iter()
-    // }
+    fn len(&self) -> usize {
+        self.nodes.len()
+    }
     fn iter(&self) -> impl ExactSizeIterator<Item=Idx> {
         (0..self.nodes.len()).into_iter()
     }
@@ -174,14 +159,16 @@ impl<'a> Expr<'a> {
         self.get_span().unwrap().into_iter()
     }
     pub fn cost_span(&self, cost_fn: &ProgramCost) -> i32 {
-        self.iter_span().map(|i|
+        let res = self.iter_span().map(|i|
             match self.set.get(i).node() {
                 Node::IVar(_) => cost_fn.cost_ivar,
                 Node::Var(_) => cost_fn.cost_var,
                 Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
                 Node::App(f, x) => cost_fn.cost_app,
                 Node::Lam(b) => cost_fn.cost_lam,
-            }).sum::<i32>()
+            }).sum::<i32>();
+        debug_assert_eq!(res, self.cost_rec(cost_fn));
+        res
     }
 
     pub fn cost_rec(&self, cost_fn: &ProgramCost) -> i32 {
@@ -198,7 +185,7 @@ impl<'a> Expr<'a> {
         }
     }
 
-    pub fn copy_span(&self, other_set: &mut ExprSet) {
+    pub fn copy_span(&self, other_set: &mut ExprSet) -> Idx {
         let shift: i32 = other_set.iter().len() as i32 - self.get_span().unwrap().start as i32;
         // extend everything on while shfiting it
         other_set.nodes.extend(self.iter_span().map(|i| {
@@ -234,6 +221,7 @@ impl<'a> Expr<'a> {
             panic!("breaking order invariant")
         }
 
+        (self.idx as i32 + shift) as usize
     }
 }
 
@@ -292,11 +280,6 @@ pub struct ProgramCost {
 }
 
 
-
-
-
-
-
 /// printing a single node prints the operator
 impl Display for Node {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -337,9 +320,6 @@ impl<'a> Display for Expr<'a> {
         fmt_local(*self, false, f)
     }
 }
-
-
-
 
 
 
@@ -554,6 +534,13 @@ mod tests {
         }
 
         assert_eq!(set.get(e3).to_string(), "((lam $8) (+ 4 4))".to_string());
+
+        // test copy_span
+        let mut other_set = &mut ExprSet::empty(Order::ChildFirst, true);
+        let e4 = other_set.parse_extend("(lam (lam $1))").unwrap();
+        let e3_new = set.get(e3).copy_span(other_set);
+        assert_eq!(set.get(e3).to_string(), other_set.get(e3_new).to_string());
+
 
 
 
