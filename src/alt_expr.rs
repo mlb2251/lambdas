@@ -262,40 +262,27 @@ impl<'a> ExprMut<'a> {
         Expr {set: self.set, idx: self.idx}
     }
     fn expand_left(&mut self, idx: Idx) {
-        debug_assert_ne!(self.idx,idx, "creating self loop: {}", self.immut());
         match self.node() {
             Node::App(x,_) => {
-                if *x == HOLE {
-                    *x = idx
-                } else {
-                    panic!("invalid expand_left() on non-hole: {:?}", self.node())
-                }
+                assert_eq!(*x, HOLE, "invalid expand_left() on non-hole");
+                *x = idx
             },
             _ => panic!("invalid expand_left() on non-app: {:?}", self.node())
         }
         debug_assert!(self.immut().node_order_safe());
     }
     fn expand(&mut self, idx: Idx) {
-        debug_assert_ne!(self.idx,idx, "creating self loop: {}", self.immut());
         match self.node() {
             Node::App(x,y) => {
-                if *x == HOLE {
-                    panic!("invalid expand() on an app that has a left hole: {:?}",self.node())
-                }
-                if *y == HOLE {
-                    *y = idx
-                } else {
-                    panic!("invalid expand() on non-hole: {:?}",self.node())
-                }
+                assert_ne!(*x, HOLE, "invalid expand() on an app that has a left hole");
+                assert_eq!(*y, HOLE, "invalid expand() on non-hole");
+                *y = idx;
             },
             Node::Lam(b) => {
-                if *b == HOLE {
-                    *b = idx
-                } else {
-                    panic!("invalid expand() on non-hole: {:?}", self.node())
-                }
+                assert_eq!(*b, HOLE, "invalid expand() on non-hole");
+                *b = idx
             }
-            _ => panic!("invalid expand() on non-app: {:?}", self.node())
+            _ => panic!("invalid expand() on non-lam non-app: {:?}", self.node())
         }
         debug_assert!(self.immut().node_order_safe());
     }
@@ -623,9 +610,13 @@ mod tests {
         e.get_mut(app2).expand_left(plus);
         e.get_mut(app1).expand(lam);
 
+        assert_eq!(e.get(app1).to_string(), "(+ ?? (lam ??))");
+
         // (app (app + 2) (lam ??))
         let two = e.add(Node::Prim("2".into()));
         e.get_mut(app2).expand(two);
+
+        assert_eq!(e.get(app1).to_string(), "(+ 2 (lam ??))");
 
         // (app (app + 2) (lam 3))
         let three = e.add(Node::Prim("3".into()));
