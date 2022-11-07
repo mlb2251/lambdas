@@ -37,6 +37,7 @@ pub enum Type {
 pub enum TNode {
     Var(usize), // type variable like t0 t1 etc
     Term(Symbol, Vec<RawTypeRef>), // symbol is the name like "int" or "list" or "->" and Vec is the args
+    // Arrow(RawTypeRef,RawTypeRef)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -54,14 +55,14 @@ impl RawTypeRef {
         TypeRef::new(*self,shift)
     }
 
-    pub fn resolve<'a>(&self, typeset: &'a TypeSet) -> &'a TNode {
+    pub fn node<'a>(&self, typeset: &'a TypeSet) -> &'a TNode {
         &typeset.nodes[self.0]
     }
 
     /// convenience method for converting to types. probably super slow but useful for debugging
     #[inline(never)]
     pub fn tp(&self, typeset: &TypeSet) -> Type {
-        match self.resolve(typeset) {
+        match self.node(typeset) {
             TNode::Var(i) => Type::Var(*i),
             TNode::Term(p, args) => {
                 Type::Term(p.clone(), args.iter().map(|arg| arg.tp(typeset)).collect())
@@ -74,7 +75,7 @@ impl RawTypeRef {
     }
 
     pub fn as_arrow(&self, typeset: &TypeSet) -> Option<(RawTypeRef, RawTypeRef)> {
-        if let TNode::Term(name,args) = self.resolve(typeset) {
+        if let TNode::Term(name,args) = self.node(typeset) {
             if *name != *ARROW_SYM {
                 return None
             }
@@ -89,7 +90,7 @@ impl RawTypeRef {
     }
 
     pub fn is_arrow(&self, typeset: &TypeSet) -> bool {
-        if let TNode::Term(name,_) = self.resolve(typeset) {
+        if let TNode::Term(name,_) = self.node(typeset) {
             return *name == *ARROW_SYM
         }
         false
@@ -118,14 +119,14 @@ impl RawTypeRef {
 
     /// true if there are no type vars in this type
     pub fn is_concrete(&self, typeset: &TypeSet) -> bool {
-        match self.resolve(typeset) {
+        match self.node(typeset) {
             TNode::Var(_) => false,
             TNode::Term(_,args) => args.iter().all(|ty| ty.is_concrete(typeset)),
         }
     }
 
     pub fn max_var(&self, typeset: &TypeSet) -> Option<usize> {
-        match self.resolve(typeset) {
+        match self.node(typeset) {
             TNode::Var(i) => Some(*i),
             TNode::Term(_, args) => args.iter().filter_map(|ty| ty.max_var(typeset)).max(),
         }
@@ -152,7 +153,7 @@ impl TypeRef {
 
     /// if `self` is a Var that is bound by our context, return whatever it is bound to 
     pub fn canonicalize(&self, typeset: &TypeSet) -> TypeRef {
-        if let TNode::Var(i) = self.raw.resolve(typeset) {
+        if let TNode::Var(i) = self.raw.node(typeset) {
             if let Some(tp_ref) = typeset.get_var(*i + self.shift) {
                 // println!("looked up t{} -> {}", *i + self.shift, tp_ref.show(typeset));
                 return tp_ref.canonicalize(typeset) // recursively resolve the lookup result
@@ -166,7 +167,7 @@ impl TypeRef {
     #[inline(always)]
     pub fn resolve(&self, typeset: &TypeSet) -> TNode {
         let canonical = self.canonicalize(typeset);
-        let resolved = canonical.raw.resolve(typeset);
+        let resolved = canonical.raw.node(typeset);
         match resolved {
             TNode::Var(i) => TNode::Var(i + canonical.shift), // importantly we add canonical.shift here not self.shift
             _ => resolved.clone()
@@ -319,7 +320,7 @@ impl TypeSet {
     /// Note the apply_immut version of this was wrong bc thats only safe to do on the hole_tp side and apply_immut
     /// is already done to the hole before then anyways
     pub fn might_unify(&self, t1: &RawTypeRef, t2: &TypeRef) -> bool {
-        let node1 = t1.resolve(self);
+        let node1 = t1.node(self);
         let node2 = t2.resolve(self);
         let shift = t2.canonicalize(self).shift;
         match (node1,node2) {
