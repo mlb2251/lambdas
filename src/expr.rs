@@ -5,9 +5,9 @@ use std::ops::{Index, IndexMut, Range};
 use serde::{Serialize, Deserialize};
 use std::cmp::{min,max};
 
-
-
 pub type Idx = usize;
+pub const HOLE: Idx = usize::MAX;
+
 
 /// A node of an untyped lambda calculus expression compatible with `egg` but also used more widely throughout this crate.
 /// Note that there is no domain associated with this object. This makes it easy to run compression on
@@ -35,9 +35,6 @@ pub enum Node where
     App(Idx,Idx), // f, x
     Lam(Idx), // body
 }
-
-pub const HOLE: Idx = usize::MAX;
-
 
 /// An untyped lambda calculus expression, much like `egg::RecExpr` but with a public `nodes` field
 /// and many attached functions. See `Lambda` for details on the individual nodes.
@@ -79,6 +76,7 @@ pub struct Expr<'a> {
     pub idx: Idx 
 }
 
+#[derive(Debug)]
 pub struct ExprMut<'a> {
     pub set: &'a mut ExprSet,
     pub idx: Idx 
@@ -134,6 +132,10 @@ impl ExprSet {
     #[inline(always)]
     pub fn get(&self, idx: Idx) -> Expr {
         Expr { set: self, idx }
+    }
+    #[inline(always)]
+    pub fn hole(&self) -> Expr {
+        Expr { set: self, idx: HOLE }
     }
     #[inline(always)]
     pub fn get_mut(&mut self, idx: Idx) -> ExprMut {
@@ -275,22 +277,15 @@ impl<'a> ExprMut<'a> {
         // let ExprMut {set, idx} = self;
         Expr {set: self.set, idx: self.idx}
     }
-    pub fn expand_left(&mut self, idx: Idx) {
-        match self.node() {
-            Node::App(x,_) => {
-                assert_eq!(*x, HOLE, "invalid expand_left() on non-hole");
-                *x = idx
-            },
-            _ => panic!("invalid expand_left() on non-app: {:?}", self.node())
-        }
-        debug_assert!(self.immut().node_order_safe());
-    }
     pub fn expand(&mut self, idx: Idx) {
         match self.node() {
             Node::App(x,y) => {
-                assert_ne!(*x, HOLE, "invalid expand() on an app that has a left hole");
-                assert_eq!(*y, HOLE, "invalid expand() on non-hole");
-                *y = idx;
+                if *x == HOLE {
+                    *x = idx;
+                } else {
+                    assert_eq!(*y, HOLE, "invalid expand() on non-hole");
+                    *y = idx;    
+                }
             },
             Node::Lam(b) => {
                 assert_eq!(*b, HOLE, "invalid expand() on non-hole");
@@ -300,12 +295,16 @@ impl<'a> ExprMut<'a> {
         }
         debug_assert!(self.immut().node_order_safe());
     }
+
     pub fn unexpand(&mut self) {
         match self.node() {
             Node::App(x,y) => {
-                assert_ne!(*x, HOLE, "invalid unexpand() on an app that has a left hole");
-                assert_ne!(*y, HOLE, "invalid unexpand() on something that's already a hole");
-                *y = HOLE;
+                if *y != HOLE {
+                    *y = HOLE;
+                } else {
+                    assert_ne!(*x, HOLE, "invalid expand() on non-hole");
+                    *x = HOLE;    
+                }
             },
             Node::Lam(b) => {
                 assert_ne!(*b, HOLE, "invalid unexpand() on something that's already a hole");
@@ -412,13 +411,17 @@ mod tests {
         // top down grow (+ 2 (lam 3)) ie (app (app + 2) 3)
         // notice we use ParentFirst
         let e = &mut ExprSet::empty(Order::ParentFirst, false);
+
+        // ??
+        assert_eq!(e.hole().to_string(), "??");
+
         // (app (app + ??) (lam ??))
         let app1 = e.add(Node::App(HOLE,HOLE));
         let app2 = e.add(Node::App(HOLE,HOLE));
         let plus = e.add(Node::Prim("+".into()));
         let lam = e.add(Node::Lam(HOLE));
-        e.get_mut(app1).expand_left(app2);
-        e.get_mut(app2).expand_left(plus);
+        e.get_mut(app1).expand(app2);
+        e.get_mut(app2).expand(plus);
         e.get_mut(app1).expand(lam);
 
         assert_eq!(e.get(app1).to_string(), "(+ ?? (lam ??))");
