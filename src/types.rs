@@ -276,20 +276,28 @@ impl TypeSet {
     pub fn add_tp(&mut self, tp: &Type) -> RawTypeRef {
         match tp {
             Type::Var(i) => {
-                self.nodes.push(TNode::Var(*i));
-                RawTypeRef(self.nodes.len() - 1)
+                self.add_node(TNode::Var(*i))
             }
             Type::Term(p, args) => {
                 let mut arg_cons = None;
                 for arg in args.iter().rev() {
                     let arg_hd = self.add_tp(arg);
-                    self.nodes.push(TNode::ArgCons(arg_hd, arg_cons));
-                    arg_cons = Some(RawTypeRef(self.nodes.len() - 1));
+                    arg_cons = Some(self.add_node(TNode::ArgCons(arg_hd, arg_cons)))
                 }
-                self.nodes.push(TNode::Term(p.clone(), arg_cons));
-                RawTypeRef(self.nodes.len() - 1)
+               self.add_node(TNode::Term(p.clone(), arg_cons))
             },
         }
+    }
+    #[inline(always)]
+    pub fn add_node(&mut self, node: TNode) -> RawTypeRef {
+        self.nodes.push(node);
+        RawTypeRef(self.nodes.len() - 1)
+    }
+    #[inline(always)]
+    pub fn add_arrow(&mut self, left: RawTypeRef, right: RawTypeRef) -> RawTypeRef {
+        let arg2 = self.add_node(TNode::ArgCons(right, None));
+        let args = self.add_node(TNode::ArgCons(left, Some(arg2)));
+        self.add_node(TNode::Term(ARROW_SYM.clone(), Some(args)))
     }
     /// This is the usual way of creating a new Context. The context will be append-only
     /// meaning you can roll it back to a point by truncating
@@ -862,6 +870,41 @@ impl<'a> Expr<'a> {
             },
         }
     }
+    // pub fn infer_ref<D: Domain>(&self, ctx: &mut TypeSet, env: &mut VecDeque<TypeRef>) -> Result<TypeRef,UnifyErr> {
+    //     // println!("infer({})", self.to_string_uncurried(child));
+    //     match self.node() {
+    //         Node::App(f,x) => {
+    //             let return_tp = ctx.fresh_type_var();
+    //             let x_tp = self.get(*x).infer_ref::<D>(ctx, env)?;
+    //             let f_tp = self.get(*f).infer_ref::<D>(ctx, env)?;
+    //             let arrow_tp = ctx.add_arrow(f_tp, x_tp);
+    //             ctx.unify(&f_tp, &Type::arrow(x_tp, return_tp.clone()))?;
+    //             Ok(return_tp.apply(ctx))
+    //         },
+    //         Node::Lam(b) => {
+    //             let var_tp = ctx.fresh_type_var();
+    //             // todo maybe optimize by making this a vecdeque for faster insert/remove at the zero index
+    //             env.push_front(var_tp.clone());
+    //             let body_tp = self.get(*b).infer_ref::<D>(ctx, env)?;
+    //             env.pop_front();
+    //             Ok(Type::arrow(var_tp, body_tp).apply(ctx))
+    //         },
+    //         Node::Var(i) => {
+    //             if (*i as usize) >= env.len() {
+    //                 panic!("unbound variable encountered during infer(): ${}", i)
+    //             }
+    //             Ok(env[*i as usize].apply(ctx))
+    //         },
+    //         Node::IVar(_i) => {
+    //             // interesting, I guess we can have this and it'd probably be easy to do
+    //             unimplemented!();
+    //         }
+    //         Node::Prim(p) => {
+    //             Ok(D::type_of_prim(p).instantiate(ctx))
+    //         },
+    //     }
+    // }
+    
 }
 
 
