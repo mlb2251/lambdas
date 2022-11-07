@@ -130,13 +130,13 @@ impl Domain for ListVal {
     // and all integer lists.
     fn val_of_prim_fallback(p: Symbol) -> Option<Val> {
         // starts with digit or negative sign -> Int
-        if p.as_str().chars().next().unwrap().is_ascii_digit() || p.as_str().starts_with('-') {
-            let i: i32 = p.as_str().parse().ok()?;
+        if p.chars().next().unwrap().is_ascii_digit() || p.starts_with('-') {
+            let i: i32 = p.parse().ok()?;
             Some(Int(i).into())
         }
         // starts with "f" or "t" -> must be a bool (if not found in PRIMS)
-        else if p.as_str().starts_with('f') || p.as_str().starts_with('t') {
-            let s: String = p.as_str().parse().ok()?;
+        else if p.starts_with('f') || p.starts_with('t') {
+            let s: String = p.parse().ok()?;
             if s == "false" {
                 Some(Dom(Bool(false)))
             } else if s == "true" {
@@ -147,8 +147,8 @@ impl Domain for ListVal {
         }
         // starts with `[` -> List
         // Note lists may contain ints, bools, or other lists in this domain
-        else if p.as_str().starts_with('[') {
-            let elems: Vec<serde_json::value::Value> = serde_json::from_str(p.as_str()).ok()?;
+        else if p.starts_with('[') {
+            let elems: Vec<serde_json::value::Value> = serde_json::from_str(&p).ok()?;
             let valvec: Vec<Val> = parse_vec(&elems);
             Some(List(valvec).into())
         } else {

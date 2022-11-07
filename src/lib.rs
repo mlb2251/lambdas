@@ -10,9 +10,8 @@ mod types;
 mod util;
 pub mod domains;
 
-
 pub use {
-    egg::*,
+    string_cache::DefaultAtom as Symbol,
     expr::*,
     dsl::*,
     eval::*,

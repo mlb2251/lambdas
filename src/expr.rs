@@ -4,6 +4,7 @@ use std::hash::Hash;
 use std::ops::{Index, IndexMut, Range};
 use serde::{Serialize, Deserialize};
 use std::cmp::{min,max};
+use string_cache::DefaultAtom as Symbol;
 
 pub type Idx = usize;
 pub const HOLE: Idx = usize::MAX;
@@ -29,7 +30,7 @@ pub const HOLE: Idx = usize::MAX;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Node where
 {
-    Prim(egg::Symbol), // primitive (eg functions, constants, all nonvariable leaf nodes)
+    Prim(Symbol), // primitive (eg functions, constants, all nonvariable leaf nodes)
     Var(i32), // db index ($i)
     IVar(i32),
     App(Idx,Idx), // f, x
@@ -374,7 +375,7 @@ pub struct ExprCost {
     cost_app: i32,
     cost_var: i32,
     cost_ivar: i32,
-    cost_prim: HashMap<egg::Symbol,i32>,
+    cost_prim: HashMap<Symbol,i32>,
     cost_prim_default: i32,
 }
 

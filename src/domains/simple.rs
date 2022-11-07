@@ -97,13 +97,13 @@ impl Domain for SimpleVal {
     // and all integer lists.
     fn val_of_prim_fallback(p: Symbol) -> Option<Val> {
         // starts with digit -> Int
-        if p.as_str().chars().next().unwrap().is_ascii_digit() {
-            let i: i32 = p.as_str().parse().ok()?;
+        if p.chars().next().unwrap().is_ascii_digit() {
+            let i: i32 = p.parse().ok()?;
             Some(Int(i).into())
         }
         // starts with `[` -> List (must be all ints)
-        else if p.as_str().starts_with('[') {
-            let intvec: Vec<i32> = serde_json::from_str(p.as_str()).ok()?;
+        else if p.starts_with('[') {
+            let intvec: Vec<i32> = serde_json::from_str(&p).ok()?;
             let valvec: Vec<Val> = intvec.into_iter().map(|v|Dom(Int(v))).collect();
             Some(List(valvec).into())
         } else {

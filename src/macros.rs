@@ -1,3 +1,4 @@
+use string_cache::DefaultAtom as Symbol;
 
 /// this macros defines two lazy static variables PRIMS and FUNCS 
 #[macro_export]

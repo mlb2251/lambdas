@@ -3,8 +3,9 @@ use std::{collections::VecDeque};
 use crate::parse_type;
 use crate::expr::*;
 use crate::dsl::Domain;
-use egg::{Symbol,Id};
 use once_cell::sync::Lazy;
+use string_cache::DefaultAtom as Symbol;
+
 
 
 
@@ -66,7 +67,7 @@ impl RawTypeRef {
         match self.resolve(typeset) {
             TNode::Var(i) => Type::Var(*i),
             TNode::Term(p, _) => {
-                Type::Term(*p, self.iter_term_args(typeset).map(|arg| arg.tp(typeset)).collect())
+                Type::Term(p.clone(), self.iter_term_args(typeset).map(|arg| arg.tp(typeset)).collect())
             },
             TNode::ArgCons(_, _) => unreachable!()
         }
@@ -287,7 +288,7 @@ impl TypeSet {
                     self.nodes.push(TNode::ArgCons(arg_hd, arg_cons));
                     arg_cons = Some(RawTypeRef(self.nodes.len() - 1));
                 }
-                self.nodes.push(TNode::Term(*p, arg_cons));
+                self.nodes.push(TNode::Term(p.clone(), arg_cons));
                 RawTypeRef(self.nodes.len() - 1)
             },
         }
@@ -402,7 +403,7 @@ impl TypeSet {
 
 
 
-static ARROW_SYM: Lazy<egg::Symbol> = Lazy::new(|| Symbol::from(Type::ARROW));
+static ARROW_SYM: Lazy<Symbol> = Lazy::new(|| Symbol::from(Type::ARROW));
 
 impl Type {
     pub const ARROW: &'static str = "->";
@@ -412,7 +413,7 @@ impl Type {
     }
 
     pub fn arrow(left: Type, right: Type) -> Type {
-        Type::Term(*ARROW_SYM, vec![left, right])
+        Type::Term(ARROW_SYM.clone(), vec![left, right])
     }
 
     pub fn is_arrow(&self) -> bool {
@@ -498,7 +499,7 @@ impl Type {
                     self.clone() // t0 is not bound by ctx so we leave it unbound
                 }
             },
-            Type::Term(name, args) => Type::Term(*name, args.iter().map(|ty| ty.apply_cached(ctx)).collect())
+            Type::Term(name, args) => Type::Term(name.clone(), args.iter().map(|ty| ty.apply_cached(ctx)).collect())
         }
     }
 
@@ -517,7 +518,7 @@ impl Type {
                     self.clone() // t0 is not bound by ctx so we leave it unbound
                 }
             },
-            Type::Term(name, args) => Type::Term(*name, args.iter().map(|ty| ty.apply(ctx)).collect())
+            Type::Term(name, args) => Type::Term(name.clone(), args.iter().map(|ty| ty.apply(ctx)).collect())
         }
     }
 
@@ -535,7 +536,7 @@ impl Type {
                     assert!(ctx.get(new).is_none());
                     Type::Var(new)
                 },
-                Type::Term(name, args) => Type::Term(*name, args.iter().map(|t| instantiate_aux(t, ctx, shift_by)).collect()),
+                Type::Term(name, args) => Type::Term(name.clone(), args.iter().map(|t| instantiate_aux(t, ctx, shift_by)).collect()),
             }
         }
         // shift by the highest var that already exists, so that theres no conflict
@@ -861,7 +862,7 @@ impl<'a> Expr<'a> {
                 unimplemented!();
             }
             Node::Prim(p) => {
-                Ok(D::type_of_prim(*p).instantiate(ctx))
+                Ok(D::type_of_prim(p.clone()).instantiate(ctx))
             },
         }
     }

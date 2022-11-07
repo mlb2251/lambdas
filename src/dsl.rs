@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::fmt::{Debug};
 use std::hash::Hash;
 use std::collections::hash_map::Values;
+use string_cache::DefaultAtom as Symbol;
+
 
 pub type DSLFn<D> = fn(Env<D>, &Evaluator<D>) -> VResult<D>;
 
@@ -34,7 +36,7 @@ impl<D: Domain> DSLEntry<D> {
 impl<D: Domain> DSL<D> {
     pub fn new( entries: Vec<DSLEntry<D>> ) -> Self {
         DSL {
-            entries: entries.into_iter().map(|entry| (entry.name, entry)).collect()
+            entries: entries.into_iter().map(|entry| (entry.name.clone(), entry)).collect()
         }
     }
 }
@@ -57,12 +59,12 @@ pub trait Domain: Clone + Debug + PartialEq + Eq + Hash + 'static {
 
     /// given a primitive's symbol return a runtime Val object. For function primitives
     /// this should return a PrimFun(CurriedFn) object.
-    fn val_of_prim(p: egg::Symbol) -> Option<Val<Self>> {
-        Self::dsl_entry(p).map(|entry| entry.val.clone()).or_else(||
+    fn val_of_prim(p: Symbol) -> Option<Val<Self>> {
+        Self::dsl_entry(p.clone()).map(|entry| entry.val.clone()).or_else(||
             Self::val_of_prim_fallback(p))
     }
 
-    fn val_of_prim_fallback(p: egg::Symbol) -> Option<Val<Self>>;
+    fn val_of_prim_fallback(p: Symbol) -> Option<Val<Self>>;
 
     /// given a function primitive's symbol return the function pointer
     /// you can use to call the function.
@@ -81,7 +83,7 @@ pub trait Domain: Clone + Debug + PartialEq + Eq + Hash + 'static {
     fn type_of_dom_val(&self) -> Type;
 
     fn type_of_prim(p: Symbol) -> Type {
-        Self::dsl_entry(p).map(|entry| entry.tp.clone()).unwrap_or_else(|| {
+        Self::dsl_entry(p.clone()).map(|entry| entry.tp.clone()).unwrap_or_else(|| {
             Self::type_of_dom_val(&Self::val_of_prim(p).unwrap().dom().unwrap())
         })
     }

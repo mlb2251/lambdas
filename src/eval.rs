@@ -5,6 +5,8 @@ use std::hash::Hash;
 use std::cell::RefCell;
 use std::time::{Instant,Duration};
 use serde::{Serialize, Deserialize};
+use string_cache::DefaultAtom as Symbol;
+
 
 /// env[i] is the value at $i
 pub type Env<D> = Vec<LazyVal<D>>;
@@ -94,20 +96,20 @@ impl<'a> Expr<'a> {
 /// notice that all arguments are filled, and return the result).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CurriedFn<D: Domain> {
-    name: egg::Symbol,
+    name: Symbol,
     arity: usize,
     partial_args: Env<D>,
 }
 
 impl<D: Domain> CurriedFn<D> {
-    pub fn new(name: egg::Symbol, arity: usize) -> Self {
+    pub fn new(name: Symbol, arity: usize) -> Self {
         Self {
             name,
             arity,
             partial_args: Vec::new(),
         }
     }
-    pub fn new_with_args(name: egg::Symbol, arity: usize, partial_args: Env<D>) -> Self {
+    pub fn new_with_args(name: Symbol, arity: usize, partial_args: Env<D>) -> Self {
         Self {
             name,
             arity,
@@ -196,7 +198,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
                 self.apply_lazy(&f_val, x_val)?
             }
             Node::Prim(p) => {
-                match D::val_of_prim(*p) {
+                match D::val_of_prim(p.clone()) {
                     Some(v) => v,
                     None => panic!("Prim `{}` not found",p),
                 }
