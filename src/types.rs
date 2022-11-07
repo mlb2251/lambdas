@@ -126,10 +126,7 @@ impl RawTypeRef {
     }
 
     pub fn max_var(&self, typeset: &TypeSet) -> Option<usize> {
-        match self.node(typeset) {
-            TNode::Var(i) => Some(*i),
-            TNode::Term(_, args) => args.iter().filter_map(|ty| ty.max_var(typeset)).max(),
-        }
+        typeset.max_vars[self.0]
     }
 
     pub fn instantiate(&self, typeset: &mut TypeSet) -> TypeRef {
@@ -254,6 +251,7 @@ impl TypeRef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeSet {
     pub nodes: Vec<TNode>,
+    pub max_vars: Vec<Option<usize>>,
     pub subst: Vec<(usize,TypeRef)>,
     pub next_var: usize,
 }
@@ -272,6 +270,11 @@ impl TypeSet {
     }
     #[inline(always)]
     pub fn add_node(&mut self, node: TNode) -> RawTypeRef {
+        let max_var = match &node {
+            TNode::Var(i) => Some(*i),
+            TNode::Term(_, args) => args.iter().filter_map(|raw| raw.max_var(self)).max(),
+        };
+        self.max_vars.push(max_var);
         self.nodes.push(node);
         RawTypeRef(self.nodes.len() - 1)
     }
@@ -286,6 +289,7 @@ impl TypeSet {
     pub fn empty() -> TypeSet {
         TypeSet {
             nodes: Default::default(),
+            max_vars: Default::default(),
             subst: Default::default(),
             next_var: 0,
         }
