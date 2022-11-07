@@ -95,7 +95,7 @@ impl Domain for SimpleVal {
     // however you're also free to do any sort of generic parsing you want, allowing for domains with
     // infinite sets of values or dynamically generated values. For example here we support all integers
     // and all integer lists.
-    fn val_of_prim_fallback(p: Symbol) -> Option<Val> {
+    fn val_of_prim_fallback(p: &Symbol) -> Option<Val> {
         // starts with digit -> Int
         if p.chars().next().unwrap().is_ascii_digit() {
             let i: i32 = p.parse().ok()?;
@@ -115,7 +115,7 @@ impl Domain for SimpleVal {
 
     fn type_of_dom_val(&self) -> Type {
         match self {
-            Int(_) => Type::base("int".into()),
+            Int(_) => Type::base(Symbol::from("int")),
             List(xs) => {
                 let elem_tp = if xs.is_empty() {
                     Type::Var(0) // (list t0)
@@ -227,16 +227,16 @@ mod tests {
         assert_execution::<domains::simple::SimpleVal, i32>("(sum (map (lam $0) []))", &[], 0);
         
 
-        let arg = SimpleVal::val_of_prim("[1,2,3]".into()).unwrap();
+        let arg = SimpleVal::val_of_prim(&"[1,2,3]".into()).unwrap();
         assert_execution("(map (lam (+ 1 $0)) $0)", &[arg], vec![2,3,4]);
 
-        let arg = SimpleVal::val_of_prim("[1,2,3]".into()).unwrap();
+        let arg = SimpleVal::val_of_prim(&"[1,2,3]".into()).unwrap();
         assert_execution("(sum (map (lam (+ 1 $0)) $0))", &[arg], 9);
 
-        let arg = SimpleVal::val_of_prim("[1,2,3]".into()).unwrap();
+        let arg = SimpleVal::val_of_prim(&"[1,2,3]".into()).unwrap();
         assert_execution("(map (lam (* $0 $0)) (map (lam (+ 1 $0)) $0))", &[arg], vec![4,9,16]);
 
-        let arg = SimpleVal::val_of_prim("[1,2,3]".into()).unwrap();
+        let arg = SimpleVal::val_of_prim(&"[1,2,3]".into()).unwrap();
         assert_execution("(map (lam (* $0 $0)) (map (lam (+ (sum $1) $0)) $0))", &[arg], vec![49,64,81]);
 
     }

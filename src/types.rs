@@ -1,10 +1,8 @@
-use core::panic;
 use std::{collections::VecDeque};
 use crate::parse_type;
-use crate::expr::*;
+use crate::*;
 use crate::dsl::Domain;
 use once_cell::sync::Lazy;
-use string_cache::DefaultAtom as Symbol;
 
 
 
@@ -403,11 +401,9 @@ impl TypeSet {
 
 
 
-static ARROW_SYM: Lazy<Symbol> = Lazy::new(|| Symbol::from(Type::ARROW));
+pub static ARROW_SYM: Lazy<Symbol> = Lazy::new(|| Symbol::from("->"));
 
 impl Type {
-    pub const ARROW: &'static str = "->";
-
     pub fn base(name: Symbol) -> Type {
         Type::Term(name, vec![])
     }
@@ -625,7 +621,7 @@ impl std::fmt::Display for Type {
                             write!(f, "(")?;
                         }
                         helper(&args[0], f, true)?;
-                        write!(f, " {} ", Type::ARROW)?;
+                        write!(f, " {} ", ARROW_SYM.as_ref())?;
                         helper(&args[1], f, false)?;
                         if arrow_parens {
                             write!(f, ")")?;
@@ -862,7 +858,7 @@ impl<'a> Expr<'a> {
                 unimplemented!();
             }
             Node::Prim(p) => {
-                Ok(D::type_of_prim(p.clone()).instantiate(ctx))
+                Ok(D::type_of_prim(p).instantiate(ctx))
             },
         }
     }

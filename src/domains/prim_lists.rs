@@ -128,7 +128,7 @@ impl Domain for ListVal {
     // however you're also free to do any sort of generic parsing you want, allowing for domains with
     // infinite sets of values or dynamically generated values. For example here we support all integers
     // and all integer lists.
-    fn val_of_prim_fallback(p: Symbol) -> Option<Val> {
+    fn val_of_prim_fallback(p: &Symbol) -> Option<Val> {
         // starts with digit or negative sign -> Int
         if p.chars().next().unwrap().is_ascii_digit() || p.starts_with('-') {
             let i: i32 = p.parse().ok()?;
@@ -160,7 +160,7 @@ impl Domain for ListVal {
 
     fn type_of_dom_val(&self) -> Type {
         match self {
-            Int(_) => Type::base("int".into()),
+            Int(_) => Type::base(Symbol::from("int")),
             Bool(_) =>  Type::base("bool".into()),
             List(xs) => {
                 let elem_tp = if xs.is_empty() {
@@ -277,11 +277,11 @@ mod tests {
     #[test]
     fn test_eval_prim_lists() {
 
-        let arg = ListVal::val_of_prim("[]".into()).unwrap();
+        let arg = ListVal::val_of_prim(&"[]".into()).unwrap();
         assert_execution::<ListVal, Vec<Val>>("(if (is_empty $0) $0 (tail $0))", &[arg], vec![]);
 
         // test cons
-        let arg = ListVal::val_of_prim("[1,2,3]".into()).unwrap();
+        let arg = ListVal::val_of_prim(&"[1,2,3]".into()).unwrap();
         assert_execution("(cons 0 $0)", &[arg], vec![0,1,2,3]);
 
         // test +
@@ -301,43 +301,43 @@ mod tests {
         // test ==
         assert_execution::<ListVal, bool>("(== 5 5)", &[], true);
         assert_execution::<ListVal, bool>("(== 5 50)", &[], false);
-        let arg1 = ListVal::val_of_prim("[[],[3],[4,5]]".into()).unwrap();
-        let arg2 = ListVal::val_of_prim("[[],[3],[4,5]]".into()).unwrap();
+        let arg1 = ListVal::val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
+        let arg2 = ListVal::val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
         assert_execution::<ListVal, bool>("(== $0 $1)", &[arg1, arg2], true);
-        let arg1 = ListVal::val_of_prim("[[],[3],[4,5]]".into()).unwrap();
-        let arg2 = ListVal::val_of_prim("[[3],[4,5]]".into()).unwrap();
+        let arg1 = ListVal::val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
+        let arg2 = ListVal::val_of_prim(&"[[3],[4,5]]".into()).unwrap();
         assert_execution::<ListVal, bool>("(== $0 $1)", &[arg1, arg2], false);
-        let arg1 = ListVal::val_of_prim("[[]]".into()).unwrap();
-        let arg2 = ListVal::val_of_prim("[]".into()).unwrap();
+        let arg1 = ListVal::val_of_prim(&"[[]]".into()).unwrap();
+        let arg2 = ListVal::val_of_prim(&"[]".into()).unwrap();
         assert_execution::<ListVal, bool>("(== $0 $1)", &[arg1, arg2], false);
-        let arg1 = ListVal::val_of_prim("[]".into()).unwrap();
-        let arg2 = ListVal::val_of_prim("[]".into()).unwrap();
+        let arg1 = ListVal::val_of_prim(&"[]".into()).unwrap();
+        let arg2 = ListVal::val_of_prim(&"[]".into()).unwrap();
         assert_execution::<ListVal, bool>("(== $0 $1)", &[arg1, arg2], true);
 
         // test is_empty
-        let arg = ListVal::val_of_prim("[[],[3],[4,5]]".into()).unwrap();
+        let arg = ListVal::val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
         assert_execution("(is_empty $0)", &[arg], false);
-        let arg = ListVal::val_of_prim("[]".into()).unwrap();
+        let arg = ListVal::val_of_prim(&"[]".into()).unwrap();
         assert_execution("(is_empty $0)", &[arg], true);
 
         // test head
-        let arg = ListVal::val_of_prim("[[1,2],[3],[4,5]]".into()).unwrap();
+        let arg = ListVal::val_of_prim(&"[[1,2],[3],[4,5]]".into()).unwrap();
         assert_execution("(head $0)", &[arg], vec![1,2]);
 
         // test tail
-        let arg = ListVal::val_of_prim("[[1,2],[3],[4,5]]".into()).unwrap();
+        let arg = ListVal::val_of_prim(&"[[1,2],[3],[4,5]]".into()).unwrap();
         assert_execution("(tail $0)", &[arg], vec![vec![3], vec![4, 5]]);
-        let arg = ListVal::val_of_prim("[[1,2]]".into()).unwrap();
+        let arg = ListVal::val_of_prim(&"[[1,2]]".into()).unwrap();
         assert_execution::<ListVal, Vec<Val>>("(tail $0)", &[arg], vec![]);
 
         // test fix
-        let arg = ListVal::val_of_prim("[]".into()).unwrap();
+        let arg = ListVal::val_of_prim(&"[]".into()).unwrap();
         assert_execution("(fix_flip $0 (lam (lam (if (is_empty $0) 0 (+ 1 ($1 (tail $0)))))))", &[arg], 0);
-        let arg = ListVal::val_of_prim("[1,2,3,2,1]".into()).unwrap();
+        let arg = ListVal::val_of_prim(&"[1,2,3,2,1]".into()).unwrap();
         assert_execution("(fix_flip $0 (lam (lam (if (is_empty $0) 0 (+ 1 ($1 (tail $0)))))))", &[arg], 5);
-        let arg = ListVal::val_of_prim("[1,2,3,4,5]".into()).unwrap();
+        let arg = ListVal::val_of_prim(&"[1,2,3,4,5]".into()).unwrap();
         assert_execution("(fix_flip $0 (lam (lam (if (is_empty $0) $0 (cons (+ 1 (head $0)) ($1 (tail $0)))))))", &[arg], vec![2, 3, 4, 5, 6]);
-        let arg = ListVal::val_of_prim("[1,2,3,4,5]".into()).unwrap();
+        let arg = ListVal::val_of_prim(&"[1,2,3,4,5]".into()).unwrap();
         assert_error::<ListVal, Val>(
             "(fix_flip $0 (lam (lam (if (is_empty $0) $0 (cons (+ 1 (head $0)) ($1 $0))))))",
             &[arg],

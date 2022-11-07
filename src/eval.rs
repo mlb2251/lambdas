@@ -5,7 +5,6 @@ use std::hash::Hash;
 use std::cell::RefCell;
 use std::time::{Instant,Duration};
 use serde::{Serialize, Deserialize};
-use string_cache::DefaultAtom as Symbol;
 
 
 /// env[i] is the value at $i
@@ -123,7 +122,7 @@ impl<D: Domain> CurriedFn<D> {
         let mut new_dslfn = self.clone();
         new_dslfn.partial_args.push(arg);
         if new_dslfn.partial_args.len() == new_dslfn.arity {
-            (D::lookup_fn_ptr(new_dslfn.name)) (new_dslfn.partial_args, handle)
+            (D::lookup_fn_ptr(&new_dslfn.name)) (new_dslfn.partial_args, handle)
         } else {
             Ok(Val::PrimFun(new_dslfn))
         }
@@ -198,7 +197,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
                 self.apply_lazy(&f_val, x_val)?
             }
             Node::Prim(p) => {
-                match D::val_of_prim(p.clone()) {
+                match D::val_of_prim(p) {
                     Some(v) => v,
                     None => panic!("Prim `{}` not found",p),
                 }

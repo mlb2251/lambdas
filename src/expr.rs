@@ -1,10 +1,9 @@
 use std::collections::HashMap;
-use std::fmt::{self, Formatter, Display, Debug};
 use std::hash::Hash;
 use std::ops::{Index, IndexMut, Range};
 use serde::{Serialize, Deserialize};
 use std::cmp::{min,max};
-use string_cache::DefaultAtom as Symbol;
+use crate::*;
 
 pub type Idx = usize;
 pub const HOLE: Idx = usize::MAX;
