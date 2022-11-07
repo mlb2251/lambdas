@@ -349,7 +349,7 @@ impl TypeSet {
         // println!("\t  ...({},{}) {}", t1, t2, self);
         // println!("about to resolve");
 
-        let canonical1 = t2.canonicalize(self);
+        let canonical1 = t1.canonicalize(self);
         let canonical2 = t2.canonicalize(self);
         let node1 = canonical1.raw.node(self);
         let node2 = canonical2.raw.node(self);
