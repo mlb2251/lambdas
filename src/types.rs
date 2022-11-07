@@ -159,18 +159,6 @@ impl TypeRef {
         *self
     }
 
-    /// canonicalizes any toplevel variable away then resolves the resulting raw type ref. Note that
-    /// the TNode returned here will not be shifted
-    // #[inline(always)]
-    // pub fn resolve(&self, typeset: &TypeSet) -> () {
-    //     let canonical = self.canonicalize(typeset);
-    //     let resolved = canonical.raw.node(typeset);
-    //     match resolved {
-    //         TNode::Var(i) => TNode::Var(i + canonical.shift), // importantly we add canonical.shift here not self.shift
-    //         _ => resolved.clone()
-    //     }
-    // }
-
     pub fn tp(&self, typeset: &TypeSet) -> Type {
         self.raw.tp(typeset)
     }
