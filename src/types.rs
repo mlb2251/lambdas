@@ -163,6 +163,7 @@ impl TypeRef {
 
     /// canonicalizes any toplevel variable away then resolves the resulting raw type ref. Note that
     /// the TNode returned here will not be shifted
+    #[inline(always)]
     pub fn resolve(&self, typeset: &TypeSet) -> TNode {
         let canonical = self.canonicalize(typeset);
         let resolved = canonical.raw.resolve(typeset);
@@ -376,8 +377,8 @@ impl TypeSet {
     }
 
     /// get what a variable is bound to (if anything).
-    #[inline(always)]
-    fn get_var(&self, var: usize) -> Option<&TypeRef> { // todo written in a silly way, rewrite
+    // #[inline(always)]
+    fn get_var(&self, var: usize) -> Option<&TypeRef> {
         self.subst.iter().rfind(|(i,_)| *i == var).map(|(_,tp)| tp)
     }
     /// set what a variable is bound to
