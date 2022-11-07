@@ -253,10 +253,9 @@ fn fix(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
 
     // fix f x = f(fix f)(x)
     let fixf = PrimFun(CurriedFn::new_with_args(Symbol::from("fix"), 2, vec![LazyVal::new_strict(fn_val.clone())]));
-    let res = if let VResult::Ok(ffixf) = handle.apply(&fn_val, fixf) {
-        handle.apply(&ffixf, x)
-    } else {
-        Err("Could not apply fixf to f".into())
+    let res = match handle.apply(&fn_val, fixf) {
+        Ok(ffixf) => handle.apply(&ffixf, x),
+        Err(err) => Err(format!("Could not apply fixf to f: {}",err))
     };
     handle.data.borrow_mut().fix_counter -= 1;
     res

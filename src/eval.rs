@@ -167,6 +167,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
                 new_env.extend(env.iter().cloned());
                 self.eval_child(*f, &mut new_env)
             }
+            // _ => Err(format!("Expected function or closure, got {:?}", f)),
             _ => Err("Expected function or closure".into()),
         }
     }

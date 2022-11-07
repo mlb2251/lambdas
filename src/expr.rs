@@ -295,6 +295,20 @@ impl<'a> ExprMut<'a> {
         }
         debug_assert!(self.immut().node_order_safe());
     }
+    pub fn expand_right(&mut self, idx: Idx) {
+        match self.node() {
+            Node::App(_,y) => {
+                assert_eq!(*y, HOLE, "invalid expand_right() on non-hole");
+                *y = idx;
+            },
+            Node::Lam(b) => {
+                assert_eq!(*b, HOLE, "invalid expand_right() on non-hole");
+                *b = idx
+            }
+            _ => panic!("invalid expand_right() on non-lam non-app: {:?}", self.node())
+        }
+        debug_assert!(self.immut().node_order_safe());
+    }
 
     pub fn unexpand(&mut self) {
         match self.node() {
@@ -302,15 +316,28 @@ impl<'a> ExprMut<'a> {
                 if *y != HOLE {
                     *y = HOLE;
                 } else {
-                    assert_ne!(*x, HOLE, "invalid expand() on non-hole");
                     *x = HOLE;    
                 }
             },
             Node::Lam(b) => {
-                assert_ne!(*b, HOLE, "invalid unexpand() on something that's already a hole");
                 *b = HOLE
             }
             _ => panic!("invalid unexpand() on non-lam non-app: {:?}", self.node())
+        }
+        debug_assert!(self.immut().node_order_safe());
+    }
+
+    pub fn unexpand_right(&mut self) {
+        match self.node() {
+            Node::App(_,y) => {
+                if *y != HOLE {
+                    *y = HOLE;
+                }
+            },
+            Node::Lam(b) => {
+                *b = HOLE
+            }
+            _ => panic!("invalid unexpand_right() on non-lam non-app: {:?}", self.node())
         }
         debug_assert!(self.immut().node_order_safe());
     }
