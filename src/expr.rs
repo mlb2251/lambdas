@@ -29,6 +29,7 @@ pub struct ExprSet {
     pub nodes: Vec<Node>,
     pub spans: Option<Vec<Range<Idx>>>,
     pub order: Order,
+    pub struct_hash: Option<HashMap<Node,Idx>>,
 }
 
 /// the ordering of nodes in an ExprSet
@@ -82,13 +83,26 @@ impl IndexMut<Range<Idx>> for ExprSet {
 
 impl ExprSet {
     /// new empty ExprSet
-    pub fn empty(order: Order, spans: bool) -> ExprSet {
+    pub fn empty(order: Order, spans: bool, struct_hash: bool) -> ExprSet {
         let spans = if spans { Some(vec![]) } else { None };
-        ExprSet { nodes: vec![], spans, order }
+        if struct_hash {
+            assert_eq!(order,Order::ChildFirst, "struct_hash=true requires order=ChildFirst");
+        }
+        let struct_hash = if struct_hash { Some(Default::default()) } else { None };
+        ExprSet { nodes: vec![], spans, order, struct_hash }
     }
     /// add a Node to an ExprSet
     pub fn add(&mut self, node: Node) -> Idx {
+
+        // look up in struct hash and simply return it if already present
+        if let Some(struct_hash) = &self.struct_hash {
+            if let Some(&idx) = struct_hash.get(&node) {
+                return idx;
+            }
+        }
+
         let idx = self.nodes.len();
+        // push on a new span if we're tracking spans
         if let Some(spans) = &mut self.spans {
             let span = match node {
                 Node::Var(_) | Node::Prim(_) | Node::IVar(_) => idx .. idx+1,
@@ -97,11 +111,19 @@ impl ExprSet {
             };
             spans.push(span);
         }
+
+        // update struct hash
+        if let Some(struct_hash) = &mut self.struct_hash {
+            struct_hash.insert(node.clone(), idx);
+        }
+
+        // push on a new node
         self.nodes.push(node);
 
         debug_assert!(self.get(idx).node_order_safe());
         idx
     }
+
     #[inline(always)]
     pub fn get(&self, idx: Idx) -> Expr {
         Expr { set: self, idx }
@@ -144,6 +166,30 @@ impl<'a> Expr<'a> {
     #[inline(always)]
     pub fn node(&self) -> &Node {
         &self.set[self.idx]
+    }
+    /// assuming this is an App, get the subexpression to the left
+    #[inline(always)]
+    pub fn left(&self) -> Self {
+        match self.node() {
+            Node::App(f,_) => self.get(*f),
+            _ => panic!("get_left called on non-App")
+        }
+    }
+    /// assuming this is an App, get the subexpression to the right
+    #[inline(always)]
+    pub fn right(&self) -> Self {
+        match self.node() {
+            Node::App(_,x) => self.get(*x),
+            _ => panic!("get_right called on non-App")
+        }
+    }
+    /// assuming this is a Lam, get the subexpression in the body
+    #[inline(always)]
+    pub fn body(&self) -> Self {
+        match self.node() {
+            Node::Lam(b) => self.get(*b),
+            _ => panic!("get_body called on non-Lam")
+        }
     }
     /// get the span of this Expr
     pub fn get_span(&self) -> Option<Range<Idx>> {
@@ -405,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_expr_basics() {
-        let set = &mut ExprSet::empty(Order::ChildFirst, true);
+        let set = &mut ExprSet::empty(Order::ChildFirst, true, false);
         
         let e1 = set.parse_extend("(lam $0)").unwrap();
         let e2 = set.parse_extend("(+ 4 4)").unwrap();
@@ -428,14 +474,14 @@ mod tests {
         assert_eq!(set.get(e3).to_string(), "((lam $8) (+ 4 4))".to_string());
 
         // test copy_span
-        let mut other_set = &mut ExprSet::empty(Order::ChildFirst, true);
+        let mut other_set = &mut ExprSet::empty(Order::ChildFirst, true, false);
         let e4 = other_set.parse_extend("(lam (lam $1))").unwrap();
         let e3_new = set.get(e3).copy_span(other_set);
         assert_eq!(set.get(e3).to_string(), other_set.get(e3_new).to_string());
 
         // top down grow (+ 2 (lam 3)) ie (app (app + 2) 3)
         // notice we use ParentFirst
-        let e = &mut ExprSet::empty(Order::ParentFirst, false);
+        let e = &mut ExprSet::empty(Order::ParentFirst, false, false);
 
         // ??
         assert_eq!(e.hole().to_string(), "??");
@@ -471,9 +517,11 @@ mod tests {
 
         assert_eq!(e.get(app1).to_string(), "(+ ?? (lam ??))");
 
-        
+        // test structural hashing
+        let mut e = ExprSet::empty(Order::ChildFirst, false, true);
+        let idx = e.parse_extend("(foo bar) (foo bar)").unwrap();
 
-
+        assert_eq!(e.get(idx).left().idx, e.get(idx).right().idx);
 
 
     }

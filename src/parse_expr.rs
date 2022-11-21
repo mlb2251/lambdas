@@ -45,6 +45,8 @@ impl<'a> Display for Expr<'a> {
 }
 
 impl ExprSet {
+    /// parses `s_init` as an Expr, inserting it into `self`. Uses .add() so spans
+    /// and structural hashing are done automatically. Is order-aware.
     pub fn parse_extend(&mut self, s_init: &str) -> Result<Idx,String> {
         let init_len = self.nodes.len();
 
@@ -193,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        let set = &mut ExprSet::empty(Order::ChildFirst, false);
+        let set = &mut ExprSet::empty(Order::ChildFirst, false, false);
         assert_parse(set, "(+ 2 3)", "(+ 2 3)");
         assert_parse(set, "(+ 2 3)", "(+ 2 3)");
 

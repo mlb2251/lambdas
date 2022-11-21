@@ -196,7 +196,7 @@ mod tests {
         }
 
         fn assert_infer(p: &str, expected: Result<&str, UnifyErr>) {
-            let mut set = ExprSet::empty(Order::ChildFirst, false);
+            let mut set = ExprSet::empty(Order::ChildFirst, false, false);
             let e = set.parse_extend(p).unwrap();
             let res = set.get(e).infer::<SimpleVal>(&mut Context::empty(), &mut Default::default());
             assert_eq!(res, expected.map(|ty| ty.parse::<Type>().unwrap()));
