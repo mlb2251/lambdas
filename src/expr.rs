@@ -414,12 +414,12 @@ impl<'a> ExprMut<'a> {
 /// `ivar` and `var` and `prim` cost 100.
 #[derive(Debug,Clone)]
 pub struct ExprCost {
-    cost_lam: i32,
-    cost_app: i32,
-    cost_var: i32,
-    cost_ivar: i32,
-    cost_prim: HashMap<Symbol,i32>,
-    cost_prim_default: i32,
+    pub cost_lam: i32,
+    pub cost_app: i32,
+    pub cost_var: i32,
+    pub cost_ivar: i32,
+    pub cost_prim: HashMap<Symbol,i32>,
+    pub cost_prim_default: i32,
 }
 
 impl ExprCost {
@@ -431,6 +431,26 @@ impl ExprCost {
             cost_ivar: 100,
             cost_prim: HashMap::new(),
             cost_prim_default: 100,
+        }
+    }
+    fn num_terminals() -> ExprCost {
+        ExprCost {
+            cost_lam: 0,
+            cost_app: 0,
+            cost_var: 1,
+            cost_ivar: 1,
+            cost_prim: HashMap::new(),
+            cost_prim_default: 1,
+        }
+    }
+    fn num_nodes() -> ExprCost {
+        ExprCost {
+            cost_lam: 1,
+            cost_app: 1,
+            cost_var: 1,
+            cost_ivar: 1,
+            cost_prim: HashMap::new(),
+            cost_prim_default: 1,
         }
     }
 }
@@ -522,6 +542,18 @@ mod tests {
         let idx = e.parse_extend("(foo bar) (foo bar)").unwrap();
 
         assert_eq!(e.get(idx).left().idx, e.get(idx).right().idx);
+
+        // test Analysis
+        let mut e = ExprSet::empty(Order::ChildFirst, false, true);
+        let mut cost = AnalyzedExpr::new(ExprCost::dreamcoder());
+        let mut num_nodes = AnalyzedExpr::new(ExprCost::num_nodes());
+        let mut num_terminals = AnalyzedExpr::new(ExprCost::num_terminals());
+        let mut depth = AnalyzedExpr::new(DepthAnalysis);
+        let idx = e.parse_extend("(foo bar) (foo bar)").unwrap();
+        assert_eq!(*cost.update(e.get(idx)), 403);
+        assert_eq!(*depth.update(e.get(idx)), 3);
+        assert_eq!(*num_nodes.update(e.get(idx)), 7);
+        assert_eq!(*num_terminals.update(e.get(idx)), 4);
 
 
     }

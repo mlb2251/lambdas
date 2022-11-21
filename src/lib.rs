@@ -8,6 +8,7 @@ mod parse_type;
 mod parse_expr;
 mod types;
 mod util;
+mod analysis;
 pub mod domains;
 
 pub use {
@@ -18,4 +19,5 @@ pub use {
     types::*,
     util::*,
     parse_expr::*,
+    analysis::*,
 };
