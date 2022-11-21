@@ -1,4 +1,5 @@
 use crate::*;
+use rustc_hash::{FxHashSet};
 
 /// A bottom up statich analysis with shared data `A` along with
 /// local data `A::Item` for each node.
@@ -77,6 +78,55 @@ impl Analysis for DepthAnalysis {
                 1 + analyzed.nodes[*b]
             }
         }
+    }
+}
+
+pub struct FreeVarAnalysis;
+impl Analysis for FreeVarAnalysis {
+    type Item = FxHashSet<i32>;
+    fn new(e: Expr, analyzed: &AnalyzedExpr<Self>) -> Self::Item {
+        let mut free: FxHashSet<i32> = Default::default();
+        match e.node() {
+            Node::IVar(_) => {},
+            Node::Var(i) => {
+                free.insert(*i);
+            },
+            Node::Prim(_) => {},
+            Node::App(f, x) => {
+                free.extend(analyzed.get(*f).iter());
+                free.extend(analyzed.get(*x).iter());
+            }
+            Node::Lam(b) => {
+                free.extend(analyzed.get(*b).iter()
+                    .filter(|i| **i > 0)    
+                    .map(|i| i - 1)
+                );
+            }
+        }
+        free
+    }
+}
+
+pub struct IVarAnalysis;
+impl Analysis for IVarAnalysis {
+    type Item = FxHashSet<i32>;
+    fn new(e: Expr, analyzed: &AnalyzedExpr<Self>) -> Self::Item {
+        let mut free: FxHashSet<i32> = Default::default();
+        match e.node() {
+            Node::IVar(i) => {
+                free.insert(*i);
+            },
+            Node::Var(_) => {},
+            Node::Prim(_) => {},
+            Node::App(f, x) => {
+                free.extend(analyzed.get(*f).iter());
+                free.extend(analyzed.get(*x).iter());
+            }
+            Node::Lam(b) => {
+                free.extend(analyzed.get(*b).iter());
+            }
+        }
+        free
     }
 }
 

@@ -3,6 +3,7 @@ use std::hash::Hash;
 use std::ops::{Index, IndexMut, Range};
 use serde::{Serialize, Deserialize};
 use std::cmp::{min,max};
+use rustc_hash::FxHashMap;
 use crate::*;
 
 pub type Idx = usize;
@@ -29,7 +30,7 @@ pub struct ExprSet {
     pub nodes: Vec<Node>,
     pub spans: Option<Vec<Range<Idx>>>,
     pub order: Order,
-    pub struct_hash: Option<HashMap<Node,Idx>>,
+    pub struct_hash: Option<FxHashMap<Node,Idx>>,
 }
 
 /// the ordering of nodes in an ExprSet
@@ -467,6 +468,8 @@ impl ExprCost {
 
 #[cfg(test)]
 mod tests {
+    use rustc_hash::FxHashSet;
+
     use super::*;
 
     #[test]
@@ -554,6 +557,10 @@ mod tests {
         assert_eq!(*depth.update(e.get(idx)), 3);
         assert_eq!(*num_nodes.update(e.get(idx)), 7);
         assert_eq!(*num_terminals.update(e.get(idx)), 4);
+
+        let idx = e.parse_extend("(lam (lam ($1 #0 $2)))").unwrap();
+        assert_eq!(AnalyzedExpr::new(FreeVarAnalysis).update(e.get(idx)), &vec![0].into_iter().collect::<FxHashSet<i32>>());
+        assert_eq!(AnalyzedExpr::new(IVarAnalysis).update(e.get(idx)), &vec![0].into_iter().collect::<FxHashSet<i32>>());
 
 
     }
