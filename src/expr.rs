@@ -6,56 +6,24 @@ use std::cmp::{min,max};
 use crate::*;
 
 pub type Idx = usize;
+
+/// Sentinel Idx indicating a hole in the expr
 pub const HOLE: Idx = usize::MAX;
 
 
-/// A node of an untyped lambda calculus expression compatible with `egg` but also used more widely throughout this crate.
-/// Note that there is no domain associated with this object. This makes it easy to run compression on
-/// domains that don't have semantics yet, makes it easy to add new prims (eg learned functions), etc.
-/// You'll have to specify a domain when you execute the expression, type check it, etc, but you can easily do
-/// that at the time through generics on those functions.
-/// 
-/// Variants:
-/// * Var(i): "$i" a debruijn index variable
-/// * IVar(i): "#i" a debruijn index variable used by inventions (advantage: readability of inventions + less shifting required)
-/// * App([f, x]): f applied to x
-/// * Lam([body]): lambda abstraction referred to through $i Vars
-/// * Prim(Symbol): primitive (eg functions, constants, all nonvariable leaf nodes)
-/// * Programs(Vec<Id>): list of root nodes of the programs. There's just one of these at the top of the program tree
-/// 
-/// Note there is no AppLam construct. This is because AppLams are represented through the `AppLam` struct when it comes
-/// to invention-finding, and they don't belong in Lambda because they never actually show up within programs (theyre only
-/// ever used in passing at the top level when constructing inventions) 
+/// A node of an untyped lambda calculus expression. Indexing with an Idx like set[i] yields
+/// a Node, while set.get(i) yields an Expr representing the subtree at that node.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Node where
 {
     Prim(Symbol), // primitive (eg functions, constants, all nonvariable leaf nodes)
     Var(i32), // db index ($i)
-    IVar(i32),
+    IVar(i32), // abstraction ("invention") variable
     App(Idx,Idx), // f, x
     Lam(Idx), // body
 }
 
-/// An untyped lambda calculus expression, much like `egg::RecExpr` but with a public `nodes` field
-/// and many attached functions. See `Lambda` for details on the individual nodes.
-/// 
-/// Creation:
-/// * From<RecExpr> is implemented (and vis versa) for interop with `egg`
-/// * Expr::new() directly constructs an Expr from a Vec<Lambda>
-/// * Expr::prim(Symbol), Expr::app(Expr,Expr), etc let you construct Exprs from other Exprs
-/// * Expr::from_curried(&str) parses from a curried string like (app (app + 3) 4)
-/// * Expr::from_uncurried(&str) parses from an uncurried string like (+ 3 4)
-/// 
-/// Displaying an expression or subexpression:
-/// * fmt::Display is implemented to return an uncurried string like (+ 3 4)
-/// * Expr::to_curried_string(Option<Id>) returns a curried string like (app (app + 3) 4) rooted at the Id if given
-/// * Expr::to_uncurried_string(Option<Id>) returns an uncurried string like (+ 3 4) rooted at the Id if given
-/// * Expr::save() lets you save an image of the expr to a file
-/// 
-/// Creating a subexpression:
-/// * Expr::cloned_subexpr(Id) returns the subexpression rooted at the Id. Generally you want to avoid this because
-///   most methods can get by just fine by taking a parent Expr and a child Id without the need for all this cloning.
-///   Importantly all Id indexing should be preserved just fine since this is implemented through truncating the underlying vector.
+/// An untyped lambda calculus expression or set of expressions
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExprSet {
     pub nodes: Vec<Node>,
@@ -63,6 +31,7 @@ pub struct ExprSet {
     pub order: Order,
 }
 
+/// the ordering of nodes in an ExprSet
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum Order {
     ChildFirst,
@@ -70,12 +39,14 @@ pub enum Order {
     Any
 }
 
+/// a read-only view into an ExprSet
 #[derive(Clone,Copy, Debug)]
 pub struct Expr<'a> {
     pub set: &'a ExprSet,
     pub idx: Idx 
 }
 
+/// a mutable view into an ExprSet
 #[derive(Debug)]
 pub struct ExprMut<'a> {
     pub set: &'a mut ExprSet,
@@ -110,10 +81,12 @@ impl IndexMut<Range<Idx>> for ExprSet {
 }
 
 impl ExprSet {
+    /// new empty ExprSet
     pub fn empty(order: Order, spans: bool) -> ExprSet {
         let spans = if spans { Some(vec![]) } else { None };
         ExprSet { nodes: vec![], spans, order }
     }
+    /// add a Node to an ExprSet
     pub fn add(&mut self, node: Node) -> Idx {
         let idx = self.nodes.len();
         if let Some(spans) = &mut self.spans {
@@ -134,19 +107,22 @@ impl ExprSet {
         Expr { set: self, idx }
     }
     #[inline(always)]
-    pub fn hole(&self) -> Expr {
-        Expr { set: self, idx: HOLE }
-    }
-    #[inline(always)]
     pub fn get_mut(&mut self, idx: Idx) -> ExprMut {
         ExprMut { set: self, idx }
     }
+    #[inline(always)]
+    pub fn hole(&self) -> Expr {
+        Expr { set: self, idx: HOLE }
+    }
+    /// number of Nodes in ExprSet
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
+    /// truncate the underlying vector of Nodes
     pub fn truncate(&mut self, len: usize) {
         self.nodes.truncate(len);
     }
+    /// returns an iterator over the Idxs from 0 to the max Idx
     pub fn iter(&self) -> impl ExactSizeIterator<Item=Idx> {
         (0..self.nodes.len()).into_iter()
     }
@@ -154,24 +130,31 @@ impl ExprSet {
 
 
 impl<'a> Expr<'a> {
+    /// get a subexpression
     #[inline(always)]
     pub fn get(&self, idx: Idx) -> Self {
         Self { set: self.set, idx }
     }
+    /// get the root node of a subexpression
     #[inline(always)]
     pub fn get_node(&'a self, idx: Idx) -> &'a Node {
         &self.set[idx]
     }
+    /// get the root node of this Expr
     #[inline(always)]
     pub fn node(&self) -> &Node {
         &self.set[self.idx]
     }
+    /// get the span of this Expr
     pub fn get_span(&self) -> Option<Range<Idx>> {
         self.set.spans.as_ref().map(|spans| spans.get(self.idx).unwrap().clone())
     }
+    /// iterate over the Idxs in the span of this Expr
     pub fn iter_span(&self) -> impl ExactSizeIterator<Item=Idx> {
         self.get_span().unwrap().into_iter()
     }
+    /// get the cost of this Expr by assuming that span() contains
+    /// each node in the expression exactly once
     pub fn cost_span(&self, cost_fn: &ExprCost) -> i32 {
         let res = self.iter_span().map(|i|
             match self.set.get(i).node() {
@@ -185,6 +168,9 @@ impl<'a> Expr<'a> {
         res
     }
 
+    /// get the cost of this Expr recursively - this may be slower than other
+    /// cost methods but works for any Expr regardless of whether precise spans
+    /// are available
     pub fn cost_rec(&self, cost_fn: &ExprCost) -> i32 {
         match self.node() {
             Node::IVar(_) => cost_fn.cost_ivar,
@@ -199,6 +185,8 @@ impl<'a> Expr<'a> {
         }
     }
 
+    /// copy this Expr onto the end of another ExprSet by copying the span and upshifting
+    /// all indices appropriately. This is order-aware.
     pub fn copy_span(&self, other_set: &mut ExprSet) -> Idx {
         let shift: i32 = other_set.iter().len() as i32 - self.get_span().unwrap().start as i32;
         // extend everything on while shfiting it
@@ -238,8 +226,9 @@ impl<'a> Expr<'a> {
         (self.idx as i32 + shift) as usize
     }
 
+    /// return true if the node at this expr obeys the defined node order
     pub fn node_order_safe(&self) -> bool {
-        match self.get(self.idx).node() {
+        match self.node() {
             Node::Prim(_) | Node::Var(_) | Node::IVar(_) => true,
             Node::App(f, x) => match self.set.order {
                 Order::ChildFirst => (*f == HOLE || *f < self.idx) && (*x == HOLE || *x < self.idx),
@@ -277,6 +266,9 @@ impl<'a> ExprMut<'a> {
         // let ExprMut {set, idx} = self;
         Expr {set: self.set, idx: self.idx}
     }
+
+    /// Fill the first hole at this node with the pointer `idx`. Panics if there is no hole or
+    /// if this is not a Lam or App. Prefers filling the left hole of an App over the right.
     pub fn expand(&mut self, idx: Idx) {
         match self.node() {
             Node::App(x,y) => {
@@ -295,6 +287,9 @@ impl<'a> ExprMut<'a> {
         }
         debug_assert!(self.immut().node_order_safe());
     }
+
+    /// expands a Lam or the righthand side of an App to point to `idx`, but never expands
+    /// the lefthand side of an App. Panics if no hole is found.
     pub fn expand_right(&mut self, idx: Idx) {
         match self.node() {
             Node::App(_,y) => {
@@ -310,6 +305,7 @@ impl<'a> ExprMut<'a> {
         debug_assert!(self.immut().node_order_safe());
     }
 
+    /// inverse of expand(), but doesn't panic in the case that something is already a hole.
     pub fn unexpand(&mut self) {
         match self.node() {
             Node::App(x,y) => {
@@ -327,6 +323,8 @@ impl<'a> ExprMut<'a> {
         debug_assert!(self.immut().node_order_safe());
     }
 
+    /// inverse of expand_right(), but doesn't panic in the case that something is already a hole. Will never
+    /// unexpand the lefthand side of an App.
     pub fn unexpand_right(&mut self) {
         match self.node() {
             Node::App(_,y) => {
