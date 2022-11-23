@@ -1,15 +1,18 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::{Index, IndexMut, Range};
+use once_cell::sync::Lazy;
 use serde::{Serialize, Deserialize};
 use std::cmp::{min,max};
 use rustc_hash::FxHashMap;
 use crate::*;
 
 pub type Idx = usize;
+pub type Span = Range<Idx>;
 
 /// Sentinel Idx indicating a hole in the expr
 pub const HOLE: Idx = usize::MAX;
+pub static HOLE_SYM: Lazy<Symbol> = Lazy::new(|| Symbol::from("??"));
 
 
 /// A node of an untyped lambda calculus expression. Indexing with an Idx like set[i] yields
@@ -54,6 +57,41 @@ pub struct ExprMut<'a> {
     pub set: &'a mut ExprSet,
     pub idx: Idx 
 }
+
+/// an owned expression
+#[derive(Debug, Clone)]
+pub struct ExprOwned {
+    pub set: ExprSet,
+    pub idx: Idx,
+}
+
+impl ExprOwned {
+    pub fn new(set: ExprSet, idx: Idx) -> Self {
+        Self { set, idx }
+    }
+    pub fn immut(&self) -> Expr<'_> {
+        Expr { set: &self.set, idx: self.idx }
+    }
+    pub fn as_mut(&mut self) -> ExprMut<'_> {
+        ExprMut { set: &mut self.set, idx: self.idx }
+    }
+    pub fn cost(&self, cost_fn: &ExprCost) -> i32 {
+        assert!(self.set.struct_hash.is_none());
+        let res = self.set.iter().map(|i|
+            match self.set.get(i).node() {
+                Node::IVar(_) => cost_fn.cost_ivar,
+                Node::Var(_) => cost_fn.cost_var,
+                Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
+                Node::App(_, _) => cost_fn.cost_app,
+                Node::Lam(_) => cost_fn.cost_lam,
+            }).sum::<i32>();
+        res
+    }
+    pub fn depth(&self) -> usize {
+        *AnalyzedExpr::new(DepthAnalysis).analyze_get(self.immut())
+    }
+}
+
 
 impl Index<Idx> for ExprSet {
     type Output = Node;
@@ -168,6 +206,13 @@ impl<'a> Expr<'a> {
     pub fn node(&self) -> &Node {
         &self.set[self.idx]
     }
+    pub fn children(&self) -> impl Iterator<Item=Idx> {
+        match self.node() {
+            Node::Var(_) | Node::Prim(_) | Node::IVar(_) => vec![].into_iter(),
+            Node::App(f, x) => vec![*f, *x].into_iter(),
+            Node::Lam(b) => vec![*b].into_iter()
+        }
+    }
     /// assuming this is an App, get the subexpression to the left
     #[inline(always)]
     pub fn left(&self) -> Self {
@@ -203,6 +248,7 @@ impl<'a> Expr<'a> {
     /// get the cost of this Expr by assuming that span() contains
     /// each node in the expression exactly once
     pub fn cost_span(&self, cost_fn: &ExprCost) -> i32 {
+        assert!(self.set.struct_hash.is_none());
         let res = self.iter_span().map(|i|
             match self.set.get(i).node() {
                 Node::IVar(_) => cost_fn.cost_ivar,
@@ -273,6 +319,33 @@ impl<'a> Expr<'a> {
         (self.idx as i32 + shift) as usize
     }
 
+    /// copy this Expr onto the end of another ExprSet by upshifting
+    /// all indices appropriately. This is order-aware. This takes a recursive approach so it
+    /// is slower than copy_span but it won't unnecessarily copy anything and 
+    /// will maintain structural hashing
+    pub fn copy_rec(self, other_set: &mut ExprSet) -> Idx {
+
+        assert_eq!(self.set.order, other_set.order);
+        fn helper(e: Expr, other_set: &mut ExprSet) -> Idx {
+            match e.node() {
+                Node::Prim(_) | Node::Var(_) | Node::IVar(_) => {
+                    other_set.add(e.node().clone())
+                }
+                Node::App(f, x) => {
+                    let f = helper(e.get(*f), other_set);
+                    let x = helper(e.get(*x), other_set);
+                    other_set.add(Node::App(f, x))
+                }
+                Node::Lam(b) => {
+                    let b = helper(e.get(*b), other_set);
+                    other_set.add(Node::Lam(b))
+                }
+            }
+        }
+
+        helper(self, other_set)
+    }
+
     /// return true if the node at this expr obeys the defined node order
     pub fn node_order_safe(&self) -> bool {
         match self.node() {
@@ -289,6 +362,13 @@ impl<'a> Expr<'a> {
             },
         }
     }
+
+    // /// non-recursive bottom up approach to calculating cost for when order is child-first. struct_hash-aware.
+    // /// this will calculate the cost of *everything* in self.set (up to self.idx) which may be a lot!
+    // pub fn cost_bottom_up(&self, cost_fn: &ExprCost) -> i32 {
+    //     assert_eq!(self.set.order, Order::ChildFirst);
+    //     *AnalyzedExpr::new(cost_fn).update(*self)
+    // }
 }
 
 impl<'a> ExprMut<'a> {
@@ -386,6 +466,31 @@ impl<'a> ExprMut<'a> {
         }
         debug_assert!(self.immut().node_order_safe());
     }
+
+    /// shift by incr_by 
+    pub fn shift(&mut self, incr_by: i32, init_depth: i32, analyzed_free_vars: &mut AnalyzedExpr<FreeVarAnalysis>) -> Idx {
+        analyzed_free_vars.analyze_to(self.set, self.idx);
+        if analyzed_free_vars[self.idx].is_empty()
+            || *analyzed_free_vars[self.idx].iter().max().unwrap() < init_depth
+        {
+            return self.idx; // nothing to shift
+        }
+
+        match self.node().clone() {
+            Node::Prim(_) => self.idx,
+            Node::Var(i) => if i >= init_depth { self.set.add(Node::Var(i+incr_by)) } else { self.idx },
+            Node::IVar(_) => self.idx,
+            Node::App(f, x) => {
+                let f = self.get(f).shift(incr_by, init_depth, analyzed_free_vars);
+                let x = self.get(x).shift(incr_by, init_depth, analyzed_free_vars);
+                self.set.add(Node::App(f, x))
+            },
+            Node::Lam(b) => {
+                let b = self.get(b).shift(incr_by, init_depth+1, analyzed_free_vars);
+                self.set.add(Node::Lam(b))
+            },
+        }
+    }
 }
 
 // struct ExprIter<'a> {
@@ -424,7 +529,7 @@ pub struct ExprCost {
 }
 
 impl ExprCost {
-    fn dreamcoder() -> ExprCost {
+    pub fn dreamcoder() -> ExprCost {
         ExprCost {
             cost_lam: 1,
             cost_app: 1,
@@ -434,7 +539,7 @@ impl ExprCost {
             cost_prim_default: 100,
         }
     }
-    fn num_terminals() -> ExprCost {
+    pub fn num_terminals() -> ExprCost {
         ExprCost {
             cost_lam: 0,
             cost_app: 0,
@@ -444,7 +549,7 @@ impl ExprCost {
             cost_prim_default: 1,
         }
     }
-    fn num_nodes() -> ExprCost {
+    pub fn num_nodes() -> ExprCost {
         ExprCost {
             cost_lam: 1,
             cost_app: 1,
@@ -553,14 +658,14 @@ mod tests {
         let mut num_terminals = AnalyzedExpr::new(ExprCost::num_terminals());
         let mut depth = AnalyzedExpr::new(DepthAnalysis);
         let idx = e.parse_extend("(foo bar) (foo bar)").unwrap();
-        assert_eq!(*cost.update(e.get(idx)), 403);
-        assert_eq!(*depth.update(e.get(idx)), 3);
-        assert_eq!(*num_nodes.update(e.get(idx)), 7);
-        assert_eq!(*num_terminals.update(e.get(idx)), 4);
+        assert_eq!(*cost.analyze_get(e.get(idx)), 403);
+        assert_eq!(*depth.analyze_get(e.get(idx)), 3);
+        assert_eq!(*num_nodes.analyze_get(e.get(idx)), 7);
+        assert_eq!(*num_terminals.analyze_get(e.get(idx)), 4);
 
         let idx = e.parse_extend("(lam (lam ($1 #0 $2)))").unwrap();
-        assert_eq!(AnalyzedExpr::new(FreeVarAnalysis).update(e.get(idx)), &vec![0].into_iter().collect::<FxHashSet<i32>>());
-        assert_eq!(AnalyzedExpr::new(IVarAnalysis).update(e.get(idx)), &vec![0].into_iter().collect::<FxHashSet<i32>>());
+        assert_eq!(AnalyzedExpr::new(FreeVarAnalysis).analyze_get(e.get(idx)), &vec![0].into_iter().collect::<FxHashSet<i32>>());
+        assert_eq!(AnalyzedExpr::new(IVarAnalysis).analyze_get(e.get(idx)), &vec![0].into_iter().collect::<FxHashSet<i32>>());
 
 
     }

@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter, self};
+use std::{fmt::{Display, Formatter, self}};
 
 use crate::expr::*;
 
@@ -41,6 +41,12 @@ impl<'a> Display for Expr<'a> {
             }
         }
         fmt_local(*self, false, f)
+    }
+}
+
+impl Display for ExprOwned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.immut())
     }
 }
 
@@ -183,6 +189,7 @@ impl ExprSet {
         Ok(items.pop().unwrap())
     }
 }
+
 
 #[cfg(test)]
 mod tests {

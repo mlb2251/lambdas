@@ -19,13 +19,19 @@ pub type ZId = usize;
 /// a zid referencing a specific ZPath and a #i index
 #[derive(Debug,Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct LabelledZId {
-    zid: ZId,
-    ivar: usize // which #i argument this is, which also corresponds to args[i] ofc
+    pub zid: ZId,
+    pub ivar: usize // which #i argument this is, which also corresponds to args[i] ofc
+}
+
+impl LabelledZId {
+    pub fn new(zid: ZId, ivar: usize) -> LabelledZId {
+        LabelledZId { zid, ivar }
+    }
 }
 
 impl<'a> Expr<'a> {
     pub fn zip(&self, zipper: &[ZNode]) -> Self {
-        let mut e = self.clone();
+        let mut e = *self;
         for znode in zipper {
             e = match znode {
                 ZNode::Func => e.left(),
@@ -37,19 +43,6 @@ impl<'a> Expr<'a> {
     } 
 }
 
-// impl<'a> ExprMut<'a> {
-//     /// mutate expression to replace
-//     #[allow(clippy::ptr_arg)]
-//     fn zip_replace(self, zipper: &[ZNode], new: Node) -> Self {
-//         let idx = self.immut().zip(zipper).idx;
-//         *self.get_node_mut(idx) = new;
-//         // let child = apply_zipper(expr,zip).unwrap();
-//         // clone and overwrite that node
-//         // let mut res = expr.clone();
-//         // res.nodes[usize::from(child)] = Node::Prim(new.into());
-//         // res
-//     }
-// }
 
 
 

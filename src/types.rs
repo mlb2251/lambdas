@@ -326,7 +326,6 @@ impl TypeSet {
             (TNode::Term(x, xs), TNode::Term(y, ys)) => {
                 *x == *y && xs.len() == ys.len() && xs.iter().zip(ys.iter().map(|raw|raw.shift(canonical2.shift))).all(|(x,y)| self.might_unify(&x,&y))
             },
-            _ => panic!("attempting to unify ArgCons or some other invalid constructor"),
         }
     }
 
