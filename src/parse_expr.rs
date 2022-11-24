@@ -117,7 +117,7 @@ impl ExprSet {
             // println!("item_str: {}", item_str);
             s = &s[..start];
 
-            if item_str == "lam" {
+            if item_str == "lam" || item_str == "lambda" {
                 // println!("remainder: {}",s);
                 let mut eof = false;
                 if let Some(c) = s.chars().last()  {
