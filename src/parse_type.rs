@@ -1,4 +1,4 @@
-use crate::types::Type;
+use crate::*;
 
 
 /// this gets used by 
@@ -14,6 +14,7 @@ pub fn parse(s: &str) -> Result<Type, String> {
 /// in `s`, or an end of string, and returns the type and the remaining string not including
 /// the closeparen if there was one
 fn parse_aux(mut s: &str) -> Result<(Type, &str), String> {
+    let arrow = ARROW_SYM.as_ref();
     let mut res = vec![];
 
     fn finish(mut res: Vec<Type>) -> Result<Type, String> {
@@ -71,7 +72,7 @@ fn parse_aux(mut s: &str) -> Result<(Type, &str), String> {
         }
 
         // check if it's an arrow type and if so parse the left and right sides
-        if item == Type::ARROW {
+        if item == arrow {
             if res.is_empty() {
                 return Err("Type parse() error: no args to the left of an arrow".into())
             }
@@ -82,7 +83,7 @@ fn parse_aux(mut s: &str) -> Result<(Type, &str), String> {
             let (ty_right, s_new) = parse_aux(&s[1..])?;
             s = s_new;
             // construct the arrow
-            return Ok((Type::Term(Type::ARROW.into(), vec![ty_left, ty_right]),s));
+            return Ok((Type::Term(ARROW_SYM.clone(), vec![ty_left, ty_right]),s));
         }
         
         // parse it as a new atomic type
@@ -106,21 +107,21 @@ fn test_parse_types() {
     ]));
 
     assert_eq!("(foo -> bar)".parse::<Type>().unwrap(),
-    Type::Term(Type::ARROW.into(), vec![
+    Type::Term(ARROW_SYM.clone(), vec![
         Type::Term("foo".into(), vec![]),
         Type::Term("bar".into(), vec![]),
     ]));
 
     assert_eq!("foo -> bar".parse::<Type>().unwrap(),
-    Type::Term(Type::ARROW.into(), vec![
+    Type::Term(ARROW_SYM.clone(), vec![
         Type::Term("foo".into(), vec![]),
         Type::Term("bar".into(), vec![]),
     ]));
 
     assert_eq!("(foo -> bar -> baz)".parse::<Type>().unwrap(),
-    Type::Term(Type::ARROW.into(), vec![
+    Type::Term(ARROW_SYM.clone(), vec![
         Type::Term("foo".into(), vec![]),
-        Type::Term(Type::ARROW.into(), vec![
+        Type::Term(ARROW_SYM.clone(), vec![
             Type::Term("bar".into(), vec![]),
             Type::Term("baz".into(), vec![]),
         ]),
@@ -132,12 +133,12 @@ fn test_parse_types() {
 
     // the map() type
     assert_eq!("(t0 -> t1) -> (list t0) -> (list t1)".parse::<Type>().unwrap(),
-    Type::Term(Type::ARROW.into(), vec![
-        Type::Term(Type::ARROW.into(), vec![
+    Type::Term(ARROW_SYM.clone(), vec![
+        Type::Term(ARROW_SYM.clone(), vec![
             Type::Var(0),
             Type::Var(1),
         ]),
-        Type::Term(Type::ARROW.into(), vec![
+        Type::Term(ARROW_SYM.clone(), vec![
             Type::Term("list".into(), vec![
                 Type::Var(0)
             ]),

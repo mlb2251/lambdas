@@ -1,508 +1,675 @@
-use crate::*;
-use crate::parse_expr::{curry_sexp,uncurry_sexp};
 use std::collections::HashMap;
-use std::fmt::{self, Formatter, Display, Debug};
 use std::hash::Hash;
-use sexp::Sexp;
+use std::ops::{Index, IndexMut, Range};
+use once_cell::sync::Lazy;
 use serde::{Serialize, Deserialize};
-use egg::Analysis;
+use std::cmp::{min,max};
+use rustc_hash::FxHashMap;
+use crate::*;
+
+pub type Idx = usize;
+pub type Span = Range<Idx>;
+
+/// Sentinel Idx indicating a hole in the expr
+pub const HOLE: Idx = usize::MAX;
+pub static HOLE_SYM: Lazy<Symbol> = Lazy::new(|| Symbol::from("??"));
 
 
-/// A node of an untyped lambda calculus expression compatible with `egg` but also used more widely throughout this crate.
-/// Note that there is no domain associated with this object. This makes it easy to run compression on
-/// domains that don't have semantics yet, makes it easy to add new prims (eg learned functions), etc.
-/// You'll have to specify a domain when you execute the expression, type check it, etc, but you can easily do
-/// that at the time through generics on those functions.
-/// 
-/// Variants:
-/// * Var(i): "$i" a debruijn index variable
-/// * IVar(i): "#i" a debruijn index variable used by inventions (advantage: readability of inventions + less shifting required)
-/// * App([f, x]): f applied to x
-/// * Lam([body]): lambda abstraction referred to through $i Vars
-/// * Prim(Symbol): primitive (eg functions, constants, all nonvariable leaf nodes)
-/// * Programs(Vec<Id>): list of root nodes of the programs. There's just one of these at the top of the program tree
-/// 
-/// Note there is no AppLam construct. This is because AppLams are represented through the `AppLam` struct when it comes
-/// to invention-finding, and they don't belong in Lambda because they never actually show up within programs (theyre only
-/// ever used in passing at the top level when constructing inventions) 
+/// A node of an untyped lambda calculus expression. Indexing with an Idx like set[i] yields
+/// a Node, while set.get(i) yields an Expr representing the subtree at that node.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum Lambda {
-    Var(i32), // db index ($i)
-    IVar(i32), // db index used by inventions (#i)
+pub enum Node where
+{
     Prim(Symbol), // primitive (eg functions, constants, all nonvariable leaf nodes)
-    App([Id; 2]), // f, x
-    Lam([Id; 1]), // body
-    Programs(Vec<Id>), // root node at the very top of the tree
+    Var(i32), // db index ($i)
+    IVar(i32), // abstraction ("invention") variable
+    App(Idx,Idx), // f, x
+    Lam(Idx), // body
 }
 
-pub const SENTINEL: usize = u32::MAX as usize;
-
-
-/// An untyped lambda calculus expression, much like `egg::RecExpr` but with a public `nodes` field
-/// and many attached functions. See `Lambda` for details on the individual nodes.
-/// 
-/// Creation:
-/// * From<RecExpr> is implemented (and vis versa) for interop with `egg`
-/// * Expr::new() directly constructs an Expr from a Vec<Lambda>
-/// * Expr::prim(Symbol), Expr::app(Expr,Expr), etc let you construct Exprs from other Exprs
-/// * Expr::from_curried(&str) parses from a curried string like (app (app + 3) 4)
-/// * Expr::from_uncurried(&str) parses from an uncurried string like (+ 3 4)
-/// 
-/// Displaying an expression or subexpression:
-/// * fmt::Display is implemented to return an uncurried string like (+ 3 4)
-/// * Expr::to_curried_string(Option<Id>) returns a curried string like (app (app + 3) 4) rooted at the Id if given
-/// * Expr::to_uncurried_string(Option<Id>) returns an uncurried string like (+ 3 4) rooted at the Id if given
-/// * Expr::save() lets you save an image of the expr to a file
-/// 
-/// Creating a subexpression:
-/// * Expr::cloned_subexpr(Id) returns the subexpression rooted at the Id. Generally you want to avoid this because
-///   most methods can get by just fine by taking a parent Expr and a child Id without the need for all this cloning.
-///   Importantly all Id indexing should be preserved just fine since this is implemented through truncating the underlying vector.
+/// An untyped lambda calculus expression or set of expressions
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Expr {
-    pub nodes: Vec<Lambda>, // just like in a RecExpr but public
+pub struct ExprSet {
+    pub nodes: Vec<Node>,
+    pub spans: Option<Vec<Range<Idx>>>,
+    pub order: Order,
+    pub struct_hash: Option<FxHashMap<Node,Idx>>,
 }
 
-// impl PartialEq for Expr {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.nodes == other.nodes
+/// the ordering of nodes in an ExprSet
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub enum Order {
+    ChildFirst,
+    ParentFirst,
+    Any
+}
+
+/// a read-only view into an ExprSet
+#[derive(Clone,Copy, Debug)]
+pub struct Expr<'a> {
+    pub set: &'a ExprSet,
+    pub idx: Idx 
+}
+
+/// a mutable view into an ExprSet
+#[derive(Debug)]
+pub struct ExprMut<'a> {
+    pub set: &'a mut ExprSet,
+    pub idx: Idx 
+}
+
+/// an owned expression
+#[derive(Debug, Clone)]
+pub struct ExprOwned {
+    pub set: ExprSet,
+    pub idx: Idx,
+}
+
+impl ExprOwned {
+    pub fn new(set: ExprSet, idx: Idx) -> Self {
+        Self { set, idx }
+    }
+    pub fn immut(&self) -> Expr<'_> {
+        Expr { set: &self.set, idx: self.idx }
+    }
+    pub fn as_mut(&mut self) -> ExprMut<'_> {
+        ExprMut { set: &mut self.set, idx: self.idx }
+    }
+    pub fn cost(&self, cost_fn: &ExprCost) -> i32 {
+        assert!(self.set.struct_hash.is_none());
+        self.set.iter().map(|i|
+            match self.set.get(i).node() {
+                Node::IVar(_) => cost_fn.cost_ivar,
+                Node::Var(_) => cost_fn.cost_var,
+                Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
+                Node::App(_, _) => cost_fn.cost_app,
+                Node::Lam(_) => cost_fn.cost_lam,
+            }).sum::<i32>()
+    }
+    pub fn depth(&self) -> usize {
+        *AnalyzedExpr::new(DepthAnalysis).analyze_get(self.immut())
+    }
+}
+
+
+impl Index<Idx> for ExprSet {
+    type Output = Node;
+    #[inline(always)]
+    fn index(&self, idx: Idx) -> &Self::Output {
+        &self.nodes[idx]
+    }
+}
+impl IndexMut<Idx> for ExprSet {
+    #[inline(always)]
+    fn index_mut(&mut self, idx: Idx) -> &mut Self::Output {
+        &mut self.nodes[idx]
+    }
+}
+impl Index<Range<Idx>> for ExprSet {
+    type Output = [Node];
+    #[inline(always)]
+    fn index(&self, idx: Range<Idx>) -> &Self::Output {
+        &self.nodes[idx]
+    }
+}
+impl IndexMut<Range<Idx>> for ExprSet {
+    #[inline(always)]
+    fn index_mut(&mut self, idx: Range<Idx>) -> &mut Self::Output {
+        &mut self.nodes[idx]
+    }
+}
+
+impl ExprSet {
+    /// new empty ExprSet
+    pub fn empty(order: Order, spans: bool, struct_hash: bool) -> ExprSet {
+        let spans = if spans { Some(vec![]) } else { None };
+        if struct_hash {
+            assert_eq!(order,Order::ChildFirst, "struct_hash=true requires order=ChildFirst");
+        }
+        let struct_hash = if struct_hash { Some(Default::default()) } else { None };
+        ExprSet { nodes: vec![], spans, order, struct_hash }
+    }
+    /// add a Node to an ExprSet
+    pub fn add(&mut self, node: Node) -> Idx {
+
+        // look up in struct hash and simply return it if already present
+        if let Some(struct_hash) = &self.struct_hash {
+            if let Some(&idx) = struct_hash.get(&node) {
+                return idx;
+            }
+        }
+
+        let idx = self.nodes.len();
+        // push on a new span if we're tracking spans
+        if let Some(spans) = &mut self.spans {
+            let span = match node {
+                Node::Var(_) | Node::Prim(_) | Node::IVar(_) => idx .. idx+1,
+                Node::App(f, x) => min(min(spans[f].start,spans[x].start),idx) .. max(max(spans[f].end,spans[x].end),idx+1),
+                Node::Lam(b) => min(spans[b].start,idx) .. max(spans[b].end,idx+1)
+            };
+            spans.push(span);
+        }
+
+        // update struct hash
+        if let Some(struct_hash) = &mut self.struct_hash {
+            struct_hash.insert(node.clone(), idx);
+        }
+
+        // push on a new node
+        self.nodes.push(node);
+
+        debug_assert!(self.get(idx).node_order_safe());
+        idx
+    }
+
+    #[inline(always)]
+    pub fn get(&self, idx: Idx) -> Expr {
+        Expr { set: self, idx }
+    }
+    #[inline(always)]
+    pub fn get_mut(&mut self, idx: Idx) -> ExprMut {
+        ExprMut { set: self, idx }
+    }
+    #[inline(always)]
+    pub fn hole(&self) -> Expr {
+        Expr { set: self, idx: HOLE }
+    }
+    /// number of Nodes in ExprSet
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+    /// whether exprset is empty
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+    /// truncate the underlying vector of Nodes
+    pub fn truncate(&mut self, len: usize) {
+        self.nodes.truncate(len);
+    }
+    /// returns an iterator over the Idxs from 0 to the max Idx
+    pub fn iter(&self) -> impl ExactSizeIterator<Item=Idx> {
+        0..self.nodes.len()
+    }
+}
+
+
+impl<'a> Expr<'a> {
+    /// get a subexpression
+    #[inline(always)]
+    pub fn get(&self, idx: Idx) -> Self {
+        Self { set: self.set, idx }
+    }
+    /// get the root node of a subexpression
+    #[inline(always)]
+    pub fn get_node(&'a self, idx: Idx) -> &'a Node {
+        &self.set[idx]
+    }
+    /// get the root node of this Expr
+    #[inline(always)]
+    pub fn node(&self) -> &Node {
+        &self.set[self.idx]
+    }
+    pub fn children(&self) -> impl Iterator<Item=Idx> {
+        match self.node() {
+            Node::Var(_) | Node::Prim(_) | Node::IVar(_) => vec![].into_iter(),
+            Node::App(f, x) => vec![*f, *x].into_iter(),
+            Node::Lam(b) => vec![*b].into_iter()
+        }
+    }
+    /// assuming this is an App, get the subexpression to the left
+    #[inline(always)]
+    pub fn left(&self) -> Self {
+        match self.node() {
+            Node::App(f,_) => self.get(*f),
+            _ => panic!("get_left called on non-App")
+        }
+    }
+    /// assuming this is an App, get the subexpression to the right
+    #[inline(always)]
+    pub fn right(&self) -> Self {
+        match self.node() {
+            Node::App(_,x) => self.get(*x),
+            _ => panic!("get_right called on non-App")
+        }
+    }
+    /// assuming this is a Lam, get the subexpression in the body
+    #[inline(always)]
+    pub fn body(&self) -> Self {
+        match self.node() {
+            Node::Lam(b) => self.get(*b),
+            _ => panic!("get_body called on non-Lam")
+        }
+    }
+    /// get the span of this Expr
+    pub fn get_span(&self) -> Option<Range<Idx>> {
+        self.set.spans.as_ref().map(|spans| spans.get(self.idx).unwrap().clone())
+    }
+    /// iterate over the Idxs in the span of this Expr
+    pub fn iter_span(&self) -> impl ExactSizeIterator<Item=Idx> {
+        self.get_span().unwrap()
+    }
+    /// get the cost of this Expr by assuming that span() contains
+    /// each node in the expression exactly once
+    pub fn cost_span(&self, cost_fn: &ExprCost) -> i32 {
+        assert!(self.set.struct_hash.is_none());
+        let res = self.iter_span().map(|i|
+            match self.set.get(i).node() {
+                Node::IVar(_) => cost_fn.cost_ivar,
+                Node::Var(_) => cost_fn.cost_var,
+                Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
+                Node::App(_, _) => cost_fn.cost_app,
+                Node::Lam(_) => cost_fn.cost_lam,
+            }).sum::<i32>();
+        debug_assert_eq!(res, self.cost_rec(cost_fn));
+        res
+    }
+
+    /// get the cost of this Expr recursively - this may be slower than other
+    /// cost methods but works for any Expr regardless of whether precise spans
+    /// are available
+    pub fn cost_rec(&self, cost_fn: &ExprCost) -> i32 {
+        match self.node() {
+            Node::IVar(_) => cost_fn.cost_ivar,
+            Node::Var(_) => cost_fn.cost_var,
+            Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
+            Node::App(f, x) => {
+                cost_fn.cost_app + self.get(*f).cost_rec(cost_fn) + self.get(*x).cost_rec(cost_fn)
+            }
+            Node::Lam(b) => {
+                cost_fn.cost_lam + self.get(*b).cost_rec(cost_fn)
+            }
+        }
+    }
+
+    /// copy this Expr onto the end of another ExprSet by copying the span and upshifting
+    /// all indices appropriately. This is order-aware.
+    pub fn copy_span(&self, other_set: &mut ExprSet) -> Idx {
+        let shift: i32 = other_set.iter().len() as i32 - self.get_span().unwrap().start as i32;
+        // extend everything on while shfiting it
+        other_set.nodes.extend(self.iter_span().map(|i| {
+            let node = self.get_node(i);
+            match node {
+                Node::Prim(_) | Node::Var(_) | Node::IVar(_) => node.clone(),
+                Node::App(f, x) => Node::App((*f as i32 + shift) as usize, (*x as i32 + shift) as usize),
+                Node::Lam(b) => Node::Lam((*b as i32 + shift) as usize),
+            }
+        }));
+
+        // shift all the spans and extend them on
+        if let Some(other_spans) = &mut other_set.spans {
+            other_spans.extend(self.iter_span().map(|i| {
+                let span = self.get(i).get_span().unwrap();
+                (span.start as i32 + shift) as usize .. (span.end as i32 + shift) as usize
+            }))
+        }
+
+        // reverse order if we have opposite orders
+        if self.set.order == Order::ChildFirst && other_set.order == Order::ParentFirst
+            || self.set.order == Order::ParentFirst && other_set.order == Order::ChildFirst
+        {
+            let len = other_set.nodes.len();
+            other_set.nodes[len - self.iter_span().len()..].reverse();
+            if let Some(other_spans) = &mut other_set.spans {
+                other_spans[len - self.iter_span().len()..].reverse();
+            }
+        }
+
+        // ensure if we're Any then they are not Any
+        if self.set.order == Order::Any && other_set.order != Order::Any {
+            panic!("breaking order invariant")
+        }
+
+        (self.idx as i32 + shift) as usize
+    }
+
+    /// copy this Expr onto the end of another ExprSet by upshifting
+    /// all indices appropriately. This is order-aware. This takes a recursive approach so it
+    /// is slower than copy_span but it won't unnecessarily copy anything and 
+    /// will maintain structural hashing
+    pub fn copy_rec(self, other_set: &mut ExprSet) -> Idx {
+
+        assert_eq!(self.set.order, other_set.order);
+        fn helper(e: Expr, other_set: &mut ExprSet) -> Idx {
+            match e.node() {
+                Node::Prim(_) | Node::Var(_) | Node::IVar(_) => {
+                    other_set.add(e.node().clone())
+                }
+                Node::App(f, x) => {
+                    let f = helper(e.get(*f), other_set);
+                    let x = helper(e.get(*x), other_set);
+                    other_set.add(Node::App(f, x))
+                }
+                Node::Lam(b) => {
+                    let b = helper(e.get(*b), other_set);
+                    other_set.add(Node::Lam(b))
+                }
+            }
+        }
+
+        helper(self, other_set)
+    }
+
+    /// return true if the node at this expr obeys the defined node order
+    pub fn node_order_safe(&self) -> bool {
+        match self.node() {
+            Node::Prim(_) | Node::Var(_) | Node::IVar(_) => true,
+            Node::App(f, x) => match self.set.order {
+                Order::ChildFirst => (*f == HOLE || *f < self.idx) && (*x == HOLE || *x < self.idx),
+                Order::ParentFirst => (*f == HOLE || *f > self.idx) && (*x == HOLE || *x > self.idx),
+                Order::Any => *f != self.idx && *x != self.idx,
+            },
+            Node::Lam(b) => match self.set.order {
+                Order::ChildFirst => *b == HOLE || *b < self.idx,
+                Order::ParentFirst => *b == HOLE || *b > self.idx,
+                Order::Any => *b != self.idx,
+            },
+        }
+    }
+
+    // /// non-recursive bottom up approach to calculating cost for when order is child-first. struct_hash-aware.
+    // /// this will calculate the cost of *everything* in self.set (up to self.idx) which may be a lot!
+    // pub fn cost_bottom_up(&self, cost_fn: &ExprCost) -> i32 {
+    //     assert_eq!(self.set.order, Order::ChildFirst);
+    //     *AnalyzedExpr::new(cost_fn).update(*self)
+    // }
+}
+
+impl<'a> ExprMut<'a> {
+    #[inline(always)]
+    pub fn get(&mut self, idx: Idx) -> ExprMut {
+        ExprMut { set: self.set, idx }
+    }
+    #[inline(always)]
+    pub fn get_node(&'a self, idx: Idx) -> &'a Node {
+        &self.set[idx]
+    }
+    #[inline(always)]
+    pub fn get_node_mut(&'a mut self, idx: Idx) -> &'a mut Node {
+        &mut self.set[idx]
+    }
+    #[inline(always)]
+    pub fn node(&mut self) -> &mut Node {
+        &mut self.set[self.idx]
+    }
+    #[inline(always)]
+    pub fn immut(&'a self) -> Expr<'a> {
+        // let ExprMut {set, idx} = self;
+        Expr {set: self.set, idx: self.idx}
+    }
+
+    /// Fill the first hole at this node with the pointer `idx`. Panics if there is no hole or
+    /// if this is not a Lam or App. Prefers filling the left hole of an App over the right.
+    pub fn expand(&mut self, idx: Idx) {
+        match self.node() {
+            Node::App(x,y) => {
+                if *x == HOLE {
+                    *x = idx;
+                } else {
+                    assert_eq!(*y, HOLE, "invalid expand() on non-hole");
+                    *y = idx;    
+                }
+            },
+            Node::Lam(b) => {
+                assert_eq!(*b, HOLE, "invalid expand() on non-hole");
+                *b = idx
+            }
+            _ => panic!("invalid expand() on non-lam non-app: {:?}", self.node())
+        }
+        debug_assert!(self.immut().node_order_safe());
+    }
+
+    /// expands a Lam or the righthand side of an App to point to `idx`, but never expands
+    /// the lefthand side of an App. Panics if no hole is found.
+    pub fn expand_right(&mut self, idx: Idx) {
+        match self.node() {
+            Node::App(_,y) => {
+                assert_eq!(*y, HOLE, "invalid expand_right() on non-hole");
+                *y = idx;
+            },
+            Node::Lam(b) => {
+                assert_eq!(*b, HOLE, "invalid expand_right() on non-hole");
+                *b = idx
+            }
+            _ => panic!("invalid expand_right() on non-lam non-app: {:?}", self.node())
+        }
+        debug_assert!(self.immut().node_order_safe());
+    }
+
+    /// inverse of expand(), but doesn't panic in the case that something is already a hole.
+    pub fn unexpand(&mut self) {
+        match self.node() {
+            Node::App(x,y) => {
+                if *y != HOLE {
+                    *y = HOLE;
+                } else {
+                    *x = HOLE;    
+                }
+            },
+            Node::Lam(b) => {
+                *b = HOLE
+            }
+            _ => panic!("invalid unexpand() on non-lam non-app: {:?}", self.node())
+        }
+        debug_assert!(self.immut().node_order_safe());
+    }
+
+    /// inverse of expand_right(), but doesn't panic in the case that something is already a hole. Will never
+    /// unexpand the lefthand side of an App.
+    pub fn unexpand_right(&mut self) {
+        match self.node() {
+            Node::App(_,y) => {
+                if *y != HOLE {
+                    *y = HOLE;
+                }
+            },
+            Node::Lam(b) => {
+                *b = HOLE
+            }
+            _ => panic!("invalid unexpand_right() on non-lam non-app: {:?}", self.node())
+        }
+        debug_assert!(self.immut().node_order_safe());
+    }
+
+    /// shift by incr_by 
+    pub fn shift(&mut self, incr_by: i32, init_depth: i32, analyzed_free_vars: &mut AnalyzedExpr<FreeVarAnalysis>) -> Idx {
+        analyzed_free_vars.analyze_to(self.set, self.idx);
+        if analyzed_free_vars[self.idx].is_empty()
+            || *analyzed_free_vars[self.idx].iter().max().unwrap() < init_depth
+        {
+            return self.idx; // nothing to shift
+        }
+
+        match self.node().clone() {
+            Node::Prim(_) => self.idx,
+            Node::Var(i) => if i >= init_depth { self.set.add(Node::Var(i+incr_by)) } else { self.idx },
+            Node::IVar(_) => self.idx,
+            Node::App(f, x) => {
+                let f = self.get(f).shift(incr_by, init_depth, analyzed_free_vars);
+                let x = self.get(x).shift(incr_by, init_depth, analyzed_free_vars);
+                self.set.add(Node::App(f, x))
+            },
+            Node::Lam(b) => {
+                let b = self.get(b).shift(incr_by, init_depth+1, analyzed_free_vars);
+                self.set.add(Node::Lam(b))
+            },
+        }
+    }
+}
+
+// struct ExprIter<'a> {
+//     curr: Expr<'a>,
+//     iters: Vec<ExprIter<'a>>
+// }
+
+// impl<'a> Iterator for ExprIter<'a> {
+//     type Item = Expr<'a>;
+
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if !self.iters.is_empty() {
+//             iters.first
+//         }
+//         match self.curr.node() {
+//             Node::Var(_) => Some(self.curr),
+//             Node::Prim(_) => Some(self.curr),
+//             Node::App(f, x) => todo!(),
+//             Node::Lam(b) => ExprIter { curr: Expr { self.curr.set,  } },
+//             Node::IVar(_) => Some(self.curr),
+//         }
 //     }
 // }
-// impl Eq for Expr {}
-
-/// printing a single node prints the operator - this is needed for `egg`.
-/// If you want to print the whole expression, use `Expr` not `Lambda`.
-impl Display for Lambda {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Var(i) => write!(f, "${}", i),
-            Self::IVar(i) => write!(f, "#{}", i),
-            Self::Prim(p) => write!(f,"{}",p),
-            Self::App(_) => write!(f,"app"),
-            Self::Lam(_) => write!(f,"lam"),
-            Self::Programs(_) => write!(f,"programs"),
-        }
-    }
-}
-
-/// implement egg-compatability for Lambda
-impl Language for Lambda {
-    fn matches(&self, other: &Self) -> bool {
-        // consider only operator, not children. I believe we do want to consider number of children in the `Programs` case based on the macro code.
-        match (self,other) {
-            (Self::Var(i), Self::Var(j)) => i == j,
-            (Self::IVar(i), Self::IVar(j)) => i == j,
-            (Self::Prim(p1), Self::Prim(p2)) => p1 == p2,
-            (Self::App(_), Self::App(_)) => true,
-            (Self::Lam(_), Self::Lam(_)) => true,
-            (Self::Programs(p1), Self::Programs(p2)) => p1.len() == p2.len(),
-            (_,_) => false,
-        }
-    }
-
-    fn children(&self) -> &[Id] {
-        match self {
-            Self::App(ids) => ids,
-            Self::Lam(ids) => ids,
-            Self::Programs(ids) => ids,
-            _ => &[],
-        }
-    }
-
-    fn children_mut(&mut self) -> &mut [Id] {
-        match self {
-            Self::App(ids) => ids,
-            Self::Lam(ids) => ids,
-            Self::Programs(ids) => ids,
-            _ => &mut [],
-        }
-    }
-}
-impl FromOp for Lambda {
-    type Error = String;
-
-    /// Parse an e-node with operator `op` and children `children`.
-    fn from_op(op: &str, children: Vec<Id>) -> Result<Self, Self::Error> {
-        match op {
-            "app" => {
-                if children.len() != 2 {
-                    return Err(format!("app needs 2 children, got {}", children.len()));
-                }
-                Ok(Self::App([children[0], children[1]]))
-            },
-            "lam" => {
-                if children.len() != 1 {
-                    return Err(format!("lam needs 1 child, got {}", children.len()));
-                }
-                Ok(Self::Lam([children[0]]))
-            }
-            "programs" => Ok(Self::Programs(children)),
-            _ => {
-                if !children.is_empty() {
-                    return Err(format!("{} needs 0 children, got {}", op, children.len()))
-                }
-                if op.starts_with('$') {
-                    let i = op.chars().skip(1).collect::<String>().parse::<i32>().unwrap();
-                    Ok(Self::Var(i))
-                } else if op.starts_with('#') {
-                    let i = op.chars().skip(1).collect::<String>().parse::<i32>().unwrap();
-                    Ok(Self::IVar(i))
-                } else {
-                    Ok(Self::Prim(egg::Symbol::from(op)))
-                }
-            },
-        }
-    }
-
-}
-
-
-
-/// Expr <-> RecExpr
-impl From<RecExpr<Lambda>> for Expr {
-    fn from(e: RecExpr<Lambda>) -> Self {
-        // todo you could (and should) actually grab it recursively, this is just some unsafe cheating during experimenting
-        let nodes: Vec<Lambda> = unsafe{ std::mem::transmute(e) };
-        Expr::new(nodes)
-    }
-}
-/// Expr <-> RecExpr
-impl From<Expr> for RecExpr<Lambda> {
-    fn from(e: Expr) -> Self {
-        // todo you could (and should) actually grab it recursively, this is just some unsafe cheating during experimenting
-        unsafe{ std::mem::transmute(e.nodes) }
-    }
-}
-/// Expr <-> RecExpr
-impl From<&Expr> for &RecExpr<Lambda> {
-    fn from(e: &Expr) -> Self {
-        // todo you could (and should) actually grab it recursively, this is just some unsafe cheating during experimenting
-        let nodes: &Vec<Lambda> = &e.nodes;
-        unsafe{ std::mem::transmute(nodes) }
-    }
-}
-
-impl Display for Expr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // write!(f, "{}", self.to_string_uncurried(None))
-        fn fmt_local(e: &Expr, child: Id, left_of_app: bool, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            if usize::from(child) == SENTINEL {
-                return write!(f,"??");
-            }
-
-            match &e.nodes[usize::from(child)] {
-                Lambda::Var(_) | Lambda::IVar(_) | Lambda::Prim(_) => write!(f,"{}", &e.nodes[usize::from(child)]),
-                Lambda::App([fun,x]) => {
-                    // if you are the left side of an application, and you are an application, you dont need parens
-                    if !left_of_app { write!(f,"(")? }
-                    fmt_local(e, *fun, true, f)?;
-                    write!(f," ")?;
-                    fmt_local(e, *x, false, f)?;
-                    if !left_of_app { write!(f,")") } else { Ok(()) }
-                },
-                Lambda::Lam([b]) => {
-                    write!(f,"(lam ")?;
-                    fmt_local(e, *b, false, f)?;
-                    write!(f,")")
-                },
-                Lambda::Programs(ids) => {
-                    write!(f,"(")?;
-                    for id in ids[..ids.len()-1].iter() {
-                        fmt_local(e, *id, false, f)?;
-                        write!(f," ")?;
-                    }
-                    fmt_local(e, *ids.last().unwrap(), false, f)?;
-                    write!(f,")")
-                },
-            }
-        }
-        fmt_local(self, self.root(), false, f)
-    }
-}
-
-
-
-
-impl Expr {
-    /// Construct a new Expr
-    pub fn new(nodes: Vec<Lambda>) -> Self {
-        Self { nodes }
-    }
-
-    /// Returns the root
-    pub fn root(&self) -> Id {
-        Id::from(self.nodes.len()-1)
-    }
-
-    /// Returns the root
-    pub fn get_root(&self) -> &Lambda {
-        self.get(self.root())
-    }
-
-    /// Returns the root
-    pub fn get(&self, child:Id) -> &Lambda {
-        &self.nodes[usize::from(child)]
-    }
-
-    /// construct an Expr with a single Var node
-    pub fn var(i: i32) -> Self {
-        Self::new(vec![Lambda::Var(i)])
-    }
-    /// construct an Expr with a single IVar node
-    pub fn ivar(i: i32) -> Self {
-        Self::new(vec![Lambda::IVar(i)])
-    }
-    /// construct an Expr with a single Prim node
-    pub fn prim(p: Symbol) -> Self {
-        Self::new(vec![Lambda::Prim(p)])
-    }
-    /// construct an Expr with a toplevel App node
-    pub fn app(f: Expr, mut x: Expr) -> Self {
-        let mut nodes = f.nodes;
-        let f_id = Id::from(nodes.len()-1);
-        x.shift_nodes(nodes.len() as i32);
-        nodes.extend(x.nodes);
-        let x_id = Id::from(nodes.len()-1);
-        nodes.push(Lambda::App([f_id, x_id]));
-        Self::new(nodes)
-    }
-    /// construct an Expr with a toplevel Lam node
-    pub fn lam(b: Expr) -> Self{
-        let mut nodes = b.nodes.clone();
-        let b_id = Id::from(b.nodes.len()-1);
-        nodes.push(Lambda::Lam([b_id]));
-        Self::new(nodes)
-    }
-    /// construct an Expr with a toplevel Programs node
-    pub fn programs(programs: Vec<Expr>) -> Self {
-        let mut nodes = vec![];
-        let mut root_ids = vec![];
-        for mut p in programs.into_iter() {
-            p.shift_nodes(nodes.len() as i32);
-            nodes.extend(p.nodes);
-            root_ids.push(Id::from(nodes.len() - 1));
-        }
-        nodes.push(Lambda::Programs(root_ids));
-        Self::new(nodes)
-    }
-
-    /// split a Programs node into a vector of the programs.
-    /// (This does not consume `self` because you cant split a single Vec allocation
-    /// into multiple (allocator restriction) so we need to make clones anyways)
-    pub fn split_programs(&self) -> Vec<Expr> {
-        match self.get_root() {
-            Lambda::Programs(roots) => {
-                // we know the separate programs are in non-overlapping contiguous
-                // chunks so this is all safe
-                let mut res: Vec<Expr> = vec![];
-                let mut start: usize = 0;
-                for root in roots.iter() {
-                    let end = usize::from(*root)+1;
-                    let mut e = Expr::new(self.nodes[start..end].to_vec());
-                    e.shift_nodes(-(start as i32));
-                    res.push(e);
-                    start = end;
-                }
-                res
-                // roots.iter().map(|root| self.to_string_uncurried(Some(*root)).parse().unwrap()).collect()
-            },
-            _ => unreachable!()
-        }
-    }
-
-    /// helper fn to shift add the Ids by a certain amount
-    pub fn shift_nodes(&mut self, shift: i32) {
-        for node in &mut self.nodes {
-            node.update_children(|id| Id::from((usize::from(id) as i32 + shift) as usize));
-        }
-    }
-
-    /// returns expr depth as per `ProgramDepth`
-    pub fn depth(&self) -> i32 {
-        ProgramDepth{}.cost_rec(self.into())
-    }
-    /// returns expr depth as per `ProgramCost`
-    pub fn cost(&self, cost: &ProgramCost) -> i32 {
-        cost.cost(self, self.root())
-    }
-
-    /// Returns a subexpression cloned out of this one with new root `child`.
-    /// Generally you want to avoid this because
-    /// most methods can get by just fine by taking a parent Expr and a child Id without the need for all this cloning.
-    /// Importantly all Id indexing should be preserved just fine since this is implemented through truncating the underlying vector.
-    pub fn cloned_subexpr(&self, child:Id) -> Self {
-        assert!(self.nodes.len() > child.into());
-        Self::new(self.nodes.iter().take(usize::from(child)+1).cloned().collect())
-    }
-    /// Consumes an expr and returns a subexpr.
-    /// Importantly all Id indexing should be preserved just fine since this is implemented through truncating the underlying vector.
-    pub fn into_subexpr(mut self, child:Id) -> Self {
-        assert!(self.nodes.len() > child.into());
-        self.nodes.truncate(usize::from(child)+1);
-        self
-    }
-
-    /// Go from a curried string to an Expr
-    /// Uncurried: (foo x y)
-    /// Curried: (app (app foo x) y)
-    pub fn from_curried(s: &str) -> Result<Self,String> {
-        let recexpr: RecExpr<Lambda> = s.parse().map_err(|e|format!("{:?}",e))?;
-        Ok(recexpr.into())
-    }
-
-    /// Go from an uncurried string to an Expr
-    /// Uncurried: (foo x y)
-    /// Curried: (app (app foo x) y)
-    pub fn from_uncurried(s: &str) -> Result<Self,String> {
-        let mut sexpr: Sexp = sexp::parse(s).map_err(|e|e.to_string())?;
-        sexpr = curry_sexp(&sexpr);
-        Self::from_curried(&sexpr.to_string())
-    }
-
-    /// Print Expr as a curried string
-    /// Uncurried: (foo x y)
-    /// Curried: (app (app foo x) y)
-    pub fn to_string_curried(&self, child: Option<Id>) -> String {
-        let expr = match child {
-            None => self.clone(),
-            Some(id) => self.cloned_subexpr(id)
-        };
-        expr.to_sexp(self.root()).to_string()
-    }
-
-    /// Print Expr as an uncurried string
-    /// Uncurried: (foo x y)
-    /// Curried: (app (app foo x) y)
-    pub fn to_string_uncurried(&self, child:Option<Id>) -> String {
-        
-        uncurry_sexp(&self.to_sexp(child.unwrap_or_else(|| self.root()))).to_string()
-    }
-
-    /// convert to an s expression. Useful for printing / parsing purposes
-    pub fn to_sexp(&self, child: Id) -> Sexp {
-        if usize::from(child) == SENTINEL {
-            return Sexp::Atom(sexp::Atom::S("??".to_string()));
-        }
-        let node = &self.nodes[usize::from(child)];
-        match node {
-            Lambda::Var(_) | Lambda::IVar(_) | Lambda::Prim(_) => sexp::parse(&node.to_string()).unwrap(),
-            Lambda::App([f,x]) => {
-                let f = self.to_sexp(*f);
-                let x = self.to_sexp(*x);
-                let app = Sexp::Atom(sexp::Atom::S("app".to_string()));
-                Sexp::List(vec![app,f,x])
-            },
-            Lambda::Lam([b]) => {
-                let b = self.to_sexp(*b);
-                let lam = Sexp::Atom(sexp::Atom::S("lam".to_string()));
-                Sexp::List(vec![lam,b])
-            },
-            Lambda::Programs(root_ids) => {
-                let mut res = vec![Sexp::Atom(sexp::Atom::S("programs".to_string()))];
-                root_ids.iter().for_each(|id| res.push(self.to_sexp(*id)));
-                Sexp::List(res)
-            }
-        }
-    }
-
-    /// write the Expr to a file (includes structural hashing sharing)
-    /// writes to `outdir/name.png` (no need to provide the extension)
-    pub fn save<A: Analysis<Lambda> + Default>(&self, name: &str, outdir: &str) {
-        let mut egraph: EGraph<Lambda,A> = Default::default();
-        egraph.add_expr(self.into());
-        egraph.dot().to_png(format!("{}/{}.png",outdir,name)).unwrap();
-    }
-}
-
 
 
 /// the cost of a program, where `app` and `lam` cost 1, `programs` costs nothing,
 /// `ivar` and `var` and `prim` cost 100.
 #[derive(Debug,Clone)]
-pub struct ProgramCost {
-    cost_lam: i32,
-    cost_app: i32,
-    cost_var: i32,
-    cost_ivar: i32,
-    cost_prim: HashMap<Symbol,i32>,
-    cost_prim_default: i32,
+pub struct ExprCost {
+    pub cost_lam: i32,
+    pub cost_app: i32,
+    pub cost_var: i32,
+    pub cost_ivar: i32,
+    pub cost_prim: HashMap<Symbol,i32>,
+    pub cost_prim_default: i32,
 }
 
-impl ProgramCost
-{
-    pub fn new(cost_lam: i32, cost_app: i32, cost_var: i32, cost_ivar: i32, cost_prim: HashMap<Symbol,i32>, cost_prim_default: i32 ) -> ProgramCost {
-        ProgramCost { cost_lam, cost_app, cost_var, cost_ivar, cost_prim, cost_prim_default }
-    }
-    pub fn cost(&self, expr: &Expr, child: Id) -> i32
-    {
-        match &expr.get(child) {
-            Lambda::IVar(_) => self.cost_ivar,
-            Lambda::Var(_) => self.cost_var,
-            Lambda::Prim(p) => *self.cost_prim.get(p).unwrap_or(&self.cost_prim_default),
-            Lambda::App([f, x]) => {
-                self.cost_app + self.cost(expr, *f) + self.cost(expr, *x)
-            }
-            Lambda::Lam([b]) => {
-                self.cost_lam + self.cost(expr, *b)
-            }
-            Lambda::Programs(ps) => {
-                ps.iter()
-                .map(|p|self.cost(expr, *p))
-                .sum()
-            }
+impl ExprCost {
+    pub fn dreamcoder() -> ExprCost {
+        ExprCost {
+            cost_lam: 1,
+            cost_app: 1,
+            cost_var: 100,
+            cost_ivar: 100,
+            cost_prim: HashMap::new(),
+            cost_prim_default: 100,
         }
     }
-
+    pub fn num_terminals() -> ExprCost {
+        ExprCost {
+            cost_lam: 0,
+            cost_app: 0,
+            cost_var: 1,
+            cost_ivar: 1,
+            cost_prim: HashMap::new(),
+            cost_prim_default: 1,
+        }
+    }
+    pub fn num_nodes() -> ExprCost {
+        ExprCost {
+            cost_lam: 1,
+            cost_app: 1,
+            cost_var: 1,
+            cost_ivar: 1,
+            cost_prim: HashMap::new(),
+            cost_prim_default: 1,
+        }
+    }
 }
 
-// impl<F> CostFunction<Lambda> for ProgramCost<F>
-// where F: Fn(Symbol) -> i32
-// {
-//     type Cost = i32;
-//     fn cost<C>(&mut self, enode: &Lambda, mut costs: C) -> Self::Cost
-//     where
-//         C: FnMut(Id) -> Self::Cost
-//     {
-//         match enode {
-//             Lambda::IVar(_) => self.cost_ivar,
-//             Lambda::Var(_) => self.cost_var,
-//             Lambda::Prim(p) => (self.cost_prim) (*p),
-//             Lambda::App([f, x]) => {
-//                 self.cost_app + costs(*f) + costs(*x)
-//             }
-//             Lambda::Lam([b]) => {
-//                 self.cost_lam + costs(*b)
-//             }
-//             Lambda::Programs(ps) => {
-//                 ps.iter()
-//                 .map(|p|costs(*p))
-//                 .sum()
-//             }
-//         }
+// impl std::str::FromStr for ExprSet {
+//     type Err = String;
+//     fn from_str(s: &str) -> Result<Self, Self::Err> {
+//         // assume uncurried string
+//         let mut set = ExprSet::empty(Order::ChildFirst, Spans::None);
+//         set.parse_extend(s)?;
+//         Ok(set)
 //     }
 // }
 
-/// depth of a program. For example a leaf is depth 1.
-pub struct ProgramDepth {}
-impl CostFunction<Lambda> for ProgramDepth {
-    type Cost = i32;
-    fn cost<C>(&mut self, enode: &Lambda, mut costs: C) -> Self::Cost
-    where
-        C: FnMut(Id) -> Self::Cost
-    {
-        match enode {
-            Lambda::Var(_) | Lambda::IVar(_) | Lambda::Prim(_) => 1,
-            Lambda::App([f, x]) => {
-                1 + std::cmp::max(costs(*f), costs(*x))
-            }
-            Lambda::Lam([b]) => {
-                1 + costs(*b)
-            }
-            Lambda::Programs(ps) => {
-                ps.iter()
-                .map(|p|costs(*p))
-                .max().unwrap()
+#[cfg(test)]
+mod tests {
+    use rustc_hash::FxHashSet;
+
+    use super::*;
+
+    #[test]
+    fn test_expr_basics() {
+        let set = &mut ExprSet::empty(Order::ChildFirst, true, false);
+        
+        let e1 = set.parse_extend("(lam $0)").unwrap();
+        let e2 = set.parse_extend("(+ 4 4)").unwrap();
+
+        // bottom up style addition of a node
+        let e3 = set.add(Node::App(e1,e2));
+        assert_eq!(set.get(e3).to_string(), "((lam $0) (+ 4 4))".to_string());
+
+        // iterators tend to return Idxs instead of &'a references to avoid
+        // lifetime woes and allow for mutation and reading interleaved as shown
+        // here
+        for i in set.get(e1).iter_span() {
+            let bonus = set.len() as i32;
+            match set.get_mut(i).node() {
+                Node::Var(i) => {*i += bonus},
+                _ => {}
             }
         }
+
+        assert_eq!(set.get(e3).to_string(), "((lam $8) (+ 4 4))".to_string());
+
+        // test copy_span
+        let other_set = &mut ExprSet::empty(Order::ChildFirst, true, false);
+        let _ = other_set.parse_extend("(lam (lam $1))").unwrap();
+        let e3_new = set.get(e3).copy_span(other_set);
+        assert_eq!(set.get(e3).to_string(), other_set.get(e3_new).to_string());
+
+        // top down grow (+ 2 (lam 3)) ie (app (app + 2) 3)
+        // notice we use ParentFirst
+        let e = &mut ExprSet::empty(Order::ParentFirst, false, false);
+
+        // ??
+        assert_eq!(e.hole().to_string(), "??");
+
+        // (app (app + ??) (lam ??))
+        let app1 = e.add(Node::App(HOLE,HOLE));
+        let app2 = e.add(Node::App(HOLE,HOLE));
+        let plus = e.add(Node::Prim("+".into()));
+        let lam = e.add(Node::Lam(HOLE));
+        e.get_mut(app1).expand(app2);
+        e.get_mut(app2).expand(plus);
+        e.get_mut(app1).expand(lam);
+
+        assert_eq!(e.get(app1).to_string(), "(+ ?? (lam ??))");
+        let len = e.len();
+
+        // (app (app + 2) (lam ??))
+        let two = e.add(Node::Prim("2".into()));
+        e.get_mut(app2).expand(two);
+
+        assert_eq!(e.get(app1).to_string(), "(+ 2 (lam ??))");
+
+        // (app (app + 2) (lam 3))
+        let three = e.add(Node::Prim("3".into()));
+        e.get_mut(lam).expand(three);
+
+        assert_eq!(e.get(app1).to_string(), "(+ 2 (lam 3))");
+
+        // roll back two steps to (app (app + ??) (lam ??))
+        e.truncate(len);
+        e.get_mut(lam).unexpand();
+        e.get_mut(app2).unexpand();
+
+        assert_eq!(e.get(app1).to_string(), "(+ ?? (lam ??))");
+
+        // test structural hashing
+        let mut e = ExprSet::empty(Order::ChildFirst, false, true);
+        let idx = e.parse_extend("(foo bar) (foo bar)").unwrap();
+
+        assert_eq!(e.get(idx).left().idx, e.get(idx).right().idx);
+
+        // test Analysis
+        let mut e = ExprSet::empty(Order::ChildFirst, false, true);
+        let mut cost = AnalyzedExpr::new(ExprCost::dreamcoder());
+        let mut num_nodes = AnalyzedExpr::new(ExprCost::num_nodes());
+        let mut num_terminals = AnalyzedExpr::new(ExprCost::num_terminals());
+        let mut depth = AnalyzedExpr::new(DepthAnalysis);
+        let idx = e.parse_extend("(foo bar) (foo bar)").unwrap();
+        assert_eq!(*cost.analyze_get(e.get(idx)), 403);
+        assert_eq!(*depth.analyze_get(e.get(idx)), 3);
+        assert_eq!(*num_nodes.analyze_get(e.get(idx)), 7);
+        assert_eq!(*num_terminals.analyze_get(e.get(idx)), 4);
+
+        let idx = e.parse_extend("(lam (lam ($1 #0 $2)))").unwrap();
+        assert_eq!(AnalyzedExpr::new(FreeVarAnalysis).analyze_get(e.get(idx)), &vec![0].into_iter().collect::<FxHashSet<i32>>());
+        assert_eq!(AnalyzedExpr::new(IVarAnalysis).analyze_get(e.get(idx)), &vec![0].into_iter().collect::<FxHashSet<i32>>());
+
+
     }
 }

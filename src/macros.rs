@@ -52,7 +52,7 @@ macro_rules! dsl_entries {
         // add entry
         $entries.push($crate::DSLEntry::new(
             $string.into(), // name
-            <$domain>::val_of_prim_fallback($string.into()).unwrap(), // val
+            <$domain>::val_of_prim_fallback(&$string.into()).unwrap(), // val
             $ty.parse().unwrap() // type
         ));
         // recurse
@@ -99,10 +99,10 @@ macro_rules! fn_ptr_entries {
 macro_rules! dsl_entries_lookup_gen {
     (  
     ) => { 
-        fn lookup_fn_ptr(p: Symbol) -> DSLFn {
+        fn lookup_fn_ptr(p: &Symbol) -> DSLFn {
             *LOOKUP_FN_PTR.get(&p).unwrap()
         }
-        fn dsl_entry(p: Symbol) -> Option<&'static DSLEntry<Self>> {
+        fn dsl_entry(p: &Symbol) -> Option<&'static DSLEntry<Self>> {
             DSL_ENTRIES.entries.get(&p)
         }
         fn dsl_entries() -> std::collections::hash_map::Values<'static, Symbol, DSLEntry<Self>> {

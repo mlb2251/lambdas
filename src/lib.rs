@@ -8,17 +8,18 @@ mod parse_type;
 mod parse_expr;
 mod types;
 mod util;
+mod analysis;
+mod zipper;
 pub mod domains;
-mod alt_expr;
-mod alt_expr_parse;
-
 
 pub use {
-    egg::*,
+    string_cache::DefaultAtom as Symbol,
     expr::*,
     dsl::*,
     eval::*,
     types::*,
     util::*,
-    alt_expr_parse::*,
+    parse_expr::*,
+    analysis::*,
+    zipper::*,
 };

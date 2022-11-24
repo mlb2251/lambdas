@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::time::{Instant,Duration};
 use serde::{Serialize, Deserialize};
 
+
 /// env[i] is the value at $i
 pub type Env<D> = Vec<LazyVal<D>>;
 
@@ -17,12 +18,12 @@ pub type Env<D> = Vec<LazyVal<D>>;
 pub enum Val<D: Domain> {
     Dom(D),
     PrimFun(CurriedFn<D>), // function ptr, arity, any args that have been partially filled in
-    LamClosure(Id, Env<D>) // body, captured env
+    LamClosure(Idx, Env<D>) // body, captured env
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum LazyValSource<D: Domain> {
-    Lazy(Id, Env<D>),
+    Lazy(Idx, Env<D>),
     Strict(Val<D>),
 }
 
@@ -33,7 +34,7 @@ pub struct LazyVal<D: Domain> {
 }
 
 impl<D: Domain> LazyVal<D> {
-    pub fn new_lazy(child: Id, env: Env<D>) -> Self {
+    pub fn new_lazy(child: Idx, env: Env<D>) -> Self {
         LazyVal {
             val: None,
             source: LazyValSource::Lazy(child, env)
@@ -66,16 +67,16 @@ pub type VError = String;
 
 #[derive(Debug)]
 pub struct Evaluator<'a, D: Domain> {
-    pub expr: &'a Expr,
+    pub expr: Expr<'a>,
     pub data: RefCell<D::Data>,
     pub start_and_timelimit: Option<(Instant, Duration)>,
 }
 
-impl Expr {
-    pub fn eval<D:Domain>(&self, child: Id, env: &mut [LazyVal<D>], timelimit: Option<Duration>) -> VResult<D> {
-        self.as_eval(timelimit).eval_child(child, env)
+impl<'a> Expr<'a> {
+    pub fn eval<D:Domain>(&self, env: &mut [LazyVal<D>], timelimit: Option<Duration>) -> VResult<D> {
+        self.as_eval(timelimit).eval_child(self.idx, env)
     }
-    pub fn as_eval<D:Domain>(&self, timelimit: Option<Duration>) -> Evaluator<D> {
+    pub fn as_eval<D:Domain>(self, timelimit: Option<Duration>) -> Evaluator<'a, D> {
         let start_and_timelimit = timelimit.map(|d| (Instant::now(),d));
         Evaluator {
             expr: self,
@@ -94,20 +95,20 @@ impl Expr {
 /// notice that all arguments are filled, and return the result).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CurriedFn<D: Domain> {
-    name: egg::Symbol,
+    name: Symbol,
     arity: usize,
     partial_args: Env<D>,
 }
 
 impl<D: Domain> CurriedFn<D> {
-    pub fn new(name: egg::Symbol, arity: usize) -> Self {
+    pub fn new(name: Symbol, arity: usize) -> Self {
         Self {
             name,
             arity,
             partial_args: Vec::new(),
         }
     }
-    pub fn new_with_args(name: egg::Symbol, arity: usize, partial_args: Env<D>) -> Self {
+    pub fn new_with_args(name: Symbol, arity: usize, partial_args: Env<D>) -> Self {
         Self {
             name,
             arity,
@@ -121,7 +122,7 @@ impl<D: Domain> CurriedFn<D> {
         let mut new_dslfn = self.clone();
         new_dslfn.partial_args.push(arg);
         if new_dslfn.partial_args.len() == new_dslfn.arity {
-            (D::lookup_fn_ptr(new_dslfn.name)) (new_dslfn.partial_args, handle)
+            (D::lookup_fn_ptr(&new_dslfn.name)) (new_dslfn.partial_args, handle)
         } else {
             Ok(Val::PrimFun(new_dslfn))
         }
@@ -167,6 +168,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
                 new_env.extend(env.iter().cloned());
                 self.eval_child(*f, &mut new_env)
             }
+            // _ => Err(format!("Expected function or closure, got {:?}", f)),
             _ => Err("Expected function or closure".into()),
         }
     }
@@ -176,35 +178,32 @@ impl<'a, D: Domain> Evaluator<'a,D> {
     }
 
     /// eval a subexpression in an environment
-    pub fn eval_child(&self, child: Id, env: &mut [LazyVal<D>]) -> VResult<D> {
+    pub fn eval_child(&self, child: Idx, env: &mut [LazyVal<D>]) -> VResult<D> {
         if let Some((start_time, duration)) = &self.start_and_timelimit {
             if start_time.elapsed() >= *duration {
                 return Err("Eval Timeout".to_string());
             }
         }
-        let val = match self.expr.nodes[usize::from(child)] {
-            Lambda::Var(i) => {
-                env[i as usize].eval(self)?
+        let val = match self.expr.get_node(child) {
+            Node::Var(i) => {
+                env[*i as usize].eval(self)?
             }
-            Lambda::IVar(_) => {
+            Node::IVar(_) => {
                 panic!("attempting to execute a #i ivar")
             }
-            Lambda::App([f,x]) => {
-                let f_val = self.eval_child(f, env)?;
-                let x_val = LazyVal::new_lazy(x, env.to_vec());
+            Node::App(f,x) => {
+                let f_val = self.eval_child(*f, env)?;
+                let x_val = LazyVal::new_lazy(*x, env.to_vec());
                 self.apply_lazy(&f_val, x_val)?
             }
-            Lambda::Prim(p) => {
+            Node::Prim(p) => {
                 match D::val_of_prim(p) {
                     Some(v) => v,
                     None => panic!("Prim `{}` not found",p),
                 }
             }
-            Lambda::Lam([b]) => {
-                Val::LamClosure(b, env.to_vec())
-            }
-            Lambda::Programs(_) => {
-                panic!("todo implement")
+            Node::Lam(b) => {
+                Val::LamClosure(*b, env.to_vec())
             }
         };
         Ok(val)

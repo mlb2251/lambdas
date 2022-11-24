@@ -1,10 +1,9 @@
-use core::panic;
 use std::{collections::VecDeque};
 use crate::parse_type;
-use crate::expr::{Expr,Lambda};
+use crate::*;
 use crate::dsl::Domain;
-use egg::{Symbol,Id};
 use once_cell::sync::Lazy;
+
 
 
 
@@ -37,8 +36,8 @@ pub enum Type {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TNode {
     Var(usize), // type variable like t0 t1 etc
-    Term(Symbol, Option<RawTypeRef>), // symbol is the name like "int" or "list" or "->" and Option<usize> is the index of an ArgCons
-    ArgCons(RawTypeRef,Option<RawTypeRef>),
+    Term(Symbol, Vec<RawTypeRef>), // symbol is the name like "int" or "list" or "->" and Vec is the args
+    // Arrow(RawTypeRef,RawTypeRef)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -56,19 +55,18 @@ impl RawTypeRef {
         TypeRef::new(*self,shift)
     }
 
-    pub fn resolve<'a>(&self, typeset: &'a TypeSet) -> &'a TNode {
+    pub fn node<'a>(&self, typeset: &'a TypeSet) -> &'a TNode {
         &typeset.nodes[self.0]
     }
 
     /// convenience method for converting to types. probably super slow but useful for debugging
     #[inline(never)]
     pub fn tp(&self, typeset: &TypeSet) -> Type {
-        match self.resolve(typeset) {
+        match self.node(typeset) {
             TNode::Var(i) => Type::Var(*i),
-            TNode::Term(p, _) => {
-                Type::Term(*p, self.iter_term_args(typeset).map(|arg| arg.tp(typeset)).collect())
+            TNode::Term(p, args) => {
+                Type::Term(p.clone(), args.iter().map(|arg| arg.tp(typeset)).collect())
             },
-            TNode::ArgCons(_, _) => unreachable!()
         }
     }
 
@@ -76,31 +74,23 @@ impl RawTypeRef {
         self.tp(typeset).to_string()
     }
 
-    pub fn iter_term_args<'a>(&self, typeset: &'a TypeSet) -> TermArgIter<'a> {
-        if let TNode::Term(_,args) = self.resolve(typeset) {
-            TermArgIter { typeset, curr_idx: args}
-        } else {
-            panic!("cant iterate, not a term")
-        }
-    }
-
     pub fn as_arrow(&self, typeset: &TypeSet) -> Option<(RawTypeRef, RawTypeRef)> {
-        if let TNode::Term(name,_) = self.resolve(typeset) {
+        if let TNode::Term(name,args) = self.node(typeset) {
             if *name != *ARROW_SYM {
                 return None
             }
-            let mut it = self.iter_term_args(typeset);
+            let mut it = args.iter();
             let left = it.next().unwrap();
             let right = it.next().unwrap();
             assert!(it.next().is_none(), "malformed arrow");
-            Some((left,right))
+            Some((*left,*right))
         } else {
              None
         }
     }
 
     pub fn is_arrow(&self, typeset: &TypeSet) -> bool {
-        if let TNode::Term(name,_) = self.resolve(typeset) {
+        if let TNode::Term(name,_) = self.node(typeset) {
             return *name == *ARROW_SYM
         }
         false
@@ -129,19 +119,14 @@ impl RawTypeRef {
 
     /// true if there are no type vars in this type
     pub fn is_concrete(&self, typeset: &TypeSet) -> bool {
-        match self.resolve(typeset) {
+        match self.node(typeset) {
             TNode::Var(_) => false,
-            TNode::Term(_, _) => self.iter_term_args(typeset).all(|ty| ty.is_concrete(typeset)),
-            TNode::ArgCons(_,_) => panic!("is_concrete on an ArgCons")
+            TNode::Term(_,args) => args.iter().all(|ty| ty.is_concrete(typeset)),
         }
     }
 
     pub fn max_var(&self, typeset: &TypeSet) -> Option<usize> {
-        match self.resolve(typeset) {
-            TNode::Var(i) => Some(*i),
-            TNode::Term(_, _) => self.iter_term_args(typeset).filter_map(|ty| ty.max_var(typeset)).max(),
-            TNode::ArgCons(_,_) => panic!("is_concrete on an ArgCons")
-        }
+        typeset.max_vars[self.0]
     }
 
     pub fn instantiate(&self, typeset: &mut TypeSet) -> TypeRef {
@@ -165,24 +150,13 @@ impl TypeRef {
 
     /// if `self` is a Var that is bound by our context, return whatever it is bound to 
     pub fn canonicalize(&self, typeset: &TypeSet) -> TypeRef {
-        if let TNode::Var(i) = self.raw.resolve(typeset) {
+        if let TNode::Var(i) = self.raw.node(typeset) {
             if let Some(tp_ref) = typeset.get_var(*i + self.shift) {
                 // println!("looked up t{} -> {}", *i + self.shift, tp_ref.show(typeset));
                 return tp_ref.canonicalize(typeset) // recursively resolve the lookup result
             }
         }
         *self
-    }
-
-    /// canonicalizes any toplevel variable away then resolves the resulting raw type ref. Note that
-    /// the TNode returned here will not be shifted
-    pub fn resolve(&self, typeset: &TypeSet) -> TNode {
-        let canonical = self.canonicalize(typeset);
-        let resolved = canonical.raw.resolve(typeset);
-        match resolved {
-            TNode::Var(i) => TNode::Var(i + canonical.shift), // importantly we add canonical.shift here not self.shift
-            _ => resolved.clone()
-        }
     }
 
     pub fn tp(&self, typeset: &TypeSet) -> Type {
@@ -193,19 +167,14 @@ impl TypeRef {
         format!("[shift {}] {}", self.shift, self.raw.tp(typeset))
     }
 
-    pub fn iter_term_args<'a>(&'a self, typeset: &'a TypeSet) -> impl Iterator<Item=TypeRef> + 'a {
-        let canonical = self.canonicalize(typeset);
-        canonical.raw.iter_term_args(typeset).map(move |raw| raw.shift(canonical.shift))
-    }
-
     pub fn as_arrow(&self, typeset: &TypeSet) -> Option<(TypeRef, TypeRef)> {
         let canonical = self.canonicalize(typeset);
         canonical.raw.as_arrow(typeset).map(|(r1,r2)| (r1.shift(canonical.shift),r2.shift(canonical.shift)))
     }
 
     pub fn is_arrow(&self, typeset: &TypeSet) -> bool {
-        if let TNode::Term(name,_) = self.resolve(typeset) {
-            return name == *ARROW_SYM
+        if let TNode::Term(name,_) = self.canonicalize(typeset).raw.node(typeset) {
+            return *name == *ARROW_SYM
         }
         false
     }
@@ -234,10 +203,10 @@ impl TypeRef {
 
     /// true if there are no type vars in this type
     pub fn is_concrete(&self, typeset: &TypeSet) -> bool {
-        match self.resolve(typeset) {
+        let canonical = self.canonicalize(typeset);
+        match canonical.raw.node(typeset) {
             TNode::Var(_) => false,
-            TNode::Term(_, _) => self.iter_term_args(typeset).all(|ty| ty.is_concrete(typeset)),
-            TNode::ArgCons(_,_) => panic!("is_concrete on an ArgCons")
+            TNode::Term(_, args) => args.iter().map(|r|r.shift(canonical.shift)).all(|ty| ty.is_concrete(typeset)),
         }
     }
 
@@ -250,17 +219,18 @@ impl TypeRef {
         // println!("canonical: {}", self.canonicalize(typeset).show(typeset));
         // println!("{:?}", self.resolve(typeset));
 
-        let resolved = self.resolve(typeset);
+        // let resolved = self.resolve(typeset);
+        // let shift = self.canonicalize(typeset).shift;
+        let canonical = self.canonicalize(typeset);
 
         // println!("resolved: {:?}", resolved);
 
-        match resolved {
-            TNode::Var(j)  => i == j,
-            TNode::Term(_, _) => {
+        match canonical.raw.node(typeset) {
+            TNode::Var(j)  => i == j + canonical.shift,
+            TNode::Term(_, args) => {
                 // println!("args: {:?}", self.iter_term_args(typeset).map(|arg|arg.show(typeset)).collect::<Vec<_>>());
-                self.iter_term_args(typeset).any(|ty| ty.occurs(i, typeset))
+                args.iter().map(|raw| raw.shift(canonical.shift)).any(|ty| ty.occurs(i, typeset))
             },
-            TNode::ArgCons(_, _) => panic!("occurs() on ArgCons")
         }
     }
 
@@ -269,6 +239,7 @@ impl TypeRef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeSet {
     pub nodes: Vec<TNode>,
+    pub max_vars: Vec<Option<usize>>,
     pub subst: Vec<(usize,TypeRef)>,
     pub next_var: usize,
 }
@@ -277,26 +248,36 @@ impl TypeSet {
     pub fn add_tp(&mut self, tp: &Type) -> RawTypeRef {
         match tp {
             Type::Var(i) => {
-                self.nodes.push(TNode::Var(*i));
-                RawTypeRef(self.nodes.len() - 1)
+                self.add_node(TNode::Var(*i))
             }
             Type::Term(p, args) => {
-                let mut arg_cons = None;
-                for arg in args.iter().rev() {
-                    let arg_hd = self.add_tp(arg);
-                    self.nodes.push(TNode::ArgCons(arg_hd, arg_cons));
-                    arg_cons = Some(RawTypeRef(self.nodes.len() - 1));
-                }
-                self.nodes.push(TNode::Term(*p, arg_cons));
-                RawTypeRef(self.nodes.len() - 1)
+                let args = args.iter().map(|arg| self.add_tp(arg)).collect();
+                self.add_node(TNode::Term(p.clone(), args))
             },
         }
     }
+    #[inline(always)]
+    pub fn add_node(&mut self, node: TNode) -> RawTypeRef {
+        let max_var = match &node {
+            TNode::Var(i) => Some(*i),
+            TNode::Term(_, args) => args.iter().filter_map(|raw| raw.max_var(self)).max(),
+        };
+        self.max_vars.push(max_var);
+        self.nodes.push(node);
+        RawTypeRef(self.nodes.len() - 1)
+    }
+    // #[inline(always)]
+    // pub fn add_arrow(&mut self, left: RawTypeRef, right: RawTypeRef) -> RawTypeRef {
+    //     let arg2 = self.add_node(TNode::ArgCons(right, None));
+    //     let args = self.add_node(TNode::ArgCons(left, Some(arg2)));
+    //     self.add_node(TNode::Term(ARROW_SYM.clone(), Some(args)))
+    // }
     /// This is the usual way of creating a new Context. The context will be append-only
     /// meaning you can roll it back to a point by truncating
     pub fn empty() -> TypeSet {
         TypeSet {
             nodes: Default::default(),
+            max_vars: Default::default(),
             subst: Default::default(),
             next_var: 0,
         }
@@ -333,16 +314,18 @@ impl TypeSet {
     /// Note the apply_immut version of this was wrong bc thats only safe to do on the hole_tp side and apply_immut
     /// is already done to the hole before then anyways
     pub fn might_unify(&self, t1: &RawTypeRef, t2: &TypeRef) -> bool {
-        let node1 = t1.resolve(self);
-        let node2 = t2.resolve(self);
+        let node1 = t1.node(self);
+        let canonical2 = t2.canonicalize(self);
+        let node2 = canonical2.raw.node(self);
+        // let node2 = t2.resolve(self);
+        // let shift = t2.canonicalize(self).shift;
         match (node1,node2) {
             (TNode::Var(_), TNode::Var(_)) => true,
             (TNode::Var(_), TNode::Term(_, _)) => true,
             (TNode::Term(_, _), TNode::Var(_)) => true,
-            (TNode::Term(x, _), TNode::Term(y, _)) => {
-                *x == y && t1.arity(self) == t2.arity(self) && t1.iter_term_args(self).zip(t2.iter_term_args(self)).all(|(x,y)| self.might_unify(&x,&y))
+            (TNode::Term(x, xs), TNode::Term(y, ys)) => {
+                *x == *y && xs.len() == ys.len() && xs.iter().zip(ys.iter().map(|raw|raw.shift(canonical2.shift))).all(|(x,y)| self.might_unify(x,&y))
             },
-            _ => panic!("attempting to unify ArgCons or some other invalid constructor"),
         }
     }
 
@@ -357,40 +340,58 @@ impl TypeSet {
         // println!("\t  ...({},{}) {}", t1, t2, self);
         // println!("about to resolve");
 
-        match ((t1.resolve(self),t1.canonicalize(self)), (t2.resolve(self),t2.canonicalize(self))) {
-            ((TNode::Var(i), _), (other, tref_other))
-          | ((other, tref_other), (TNode::Var(i),_)) =>
-          {
-                // println!("resolved");
+        let canonical1 = t1.canonicalize(self);
+        let canonical2 = t2.canonicalize(self);
+        let node1 = canonical1.raw.node(self);
+        let node2 = canonical2.raw.node(self);
 
-                if other == TNode::Var(i) { return Ok(()) } // unify(t0, t0) -> true
-                // println!("occurs");
-                if tref_other.occurs(i, self) { return Err(UnifyErr::Occurs) } // recursive type  e.g. unify(t0, (t0 -> int)) -> false
-                // println!("occurs done");
+        match (node1,node2) {
+            (TNode::Var(i), _) => {
+                let i_shifted = i + canonical1.shift;
+                // check for identical variable (only needs to happen on this match case bc later one cant have a Var for both)
+                if let TNode::Var(j) = node2 {
+                    if i_shifted == j + canonical2.shift {
+                        return Ok(()); // unify(t0, t0) -> true
+                    }
+                }
+                // *** "occurs" check, which prevents recursive definitions of types. Removing it would allow them.
+                if canonical2.occurs(i_shifted, self) { return Err(UnifyErr::Occurs) } // recursive type  e.g. unify(t0, (t0 -> int)) -> false
 
-                // *** Above is the "occurs" check, which prevents recursive definitions of types. Removing it would allow them.
-
-                assert!(self.get_var(i).is_none());
-                self.set_var(i, tref_other);
+                // set the varisble
+                assert!(self.get_var(i_shifted).is_none());
+                self.set_var(i_shifted, canonical2);
                 Ok(())
-            },
-            ((TNode::Term(x, _),tref_x), (TNode::Term(y, _),tref_y)) =>
+            }
+            (_, TNode::Var(i)) => {
+                let i_shifted = i + canonical2.shift;
+                // *** "occurs" check, which prevents recursive definitions of types. Removing it would allow them.
+                if canonical1.occurs(i_shifted, self) { return Err(UnifyErr::Occurs) } // recursive type  e.g. unify(t0, (t0 -> int)) -> false
+
+                // set the varisble
+                assert!(self.get_var(i_shifted).is_none());
+                self.set_var(i_shifted, canonical1);
+                Ok(())
+            }
+
+            (TNode::Term(x, xs), TNode::Term(y, ys)) =>
             {
                 // println!("resolved");
                 // simply recurse
-                if x != y || tref_x.arity(self) != tref_y.arity(self) {
+                if x != y || xs.len() != ys.len() {
                     return Err(UnifyErr::Production)
                 }
-                // todo sad collect() here for borrow checker but might wanna find a way around
-                tref_x.iter_term_args(self).zip(tref_y.iter_term_args(self)).collect::<Vec<_>>().into_iter().try_for_each(|(x,y)| self.unify(&x,&y))
+                // todo ugh lame collect()
+                xs.iter().map(|r|r.shift(canonical1.shift))
+                    .zip(ys.iter().map(|r|r.shift(canonical2.shift)))
+                    .collect::<Vec<_>>().into_iter()
+                    .try_for_each(|(x,y)| self.unify(&x,&y))
             }
-            _ => unreachable!()
         }
     }
 
     /// get what a variable is bound to (if anything).
-    #[inline(always)]
-    fn get_var(&self, var: usize) -> Option<&TypeRef> { // todo written in a silly way, rewrite
+    // #[inline(always)]
+    fn get_var(&self, var: usize) -> Option<&TypeRef> {
         self.subst.iter().rfind(|(i,_)| *i == var).map(|(_,tp)| tp)
     }
     /// set what a variable is bound to
@@ -402,17 +403,15 @@ impl TypeSet {
 
 
 
-static ARROW_SYM: Lazy<egg::Symbol> = Lazy::new(|| Symbol::from(Type::ARROW));
+pub static ARROW_SYM: Lazy<Symbol> = Lazy::new(|| Symbol::from("->"));
 
 impl Type {
-    pub const ARROW: &'static str = "->";
-
     pub fn base(name: Symbol) -> Type {
         Type::Term(name, vec![])
     }
 
     pub fn arrow(left: Type, right: Type) -> Type {
-        Type::Term(*ARROW_SYM, vec![left, right])
+        Type::Term(ARROW_SYM.clone(), vec![left, right])
     }
 
     pub fn is_arrow(&self) -> bool {
@@ -498,7 +497,7 @@ impl Type {
                     self.clone() // t0 is not bound by ctx so we leave it unbound
                 }
             },
-            Type::Term(name, args) => Type::Term(*name, args.iter().map(|ty| ty.apply_cached(ctx)).collect())
+            Type::Term(name, args) => Type::Term(name.clone(), args.iter().map(|ty| ty.apply_cached(ctx)).collect())
         }
     }
 
@@ -517,7 +516,7 @@ impl Type {
                     self.clone() // t0 is not bound by ctx so we leave it unbound
                 }
             },
-            Type::Term(name, args) => Type::Term(*name, args.iter().map(|ty| ty.apply(ctx)).collect())
+            Type::Term(name, args) => Type::Term(name.clone(), args.iter().map(|ty| ty.apply(ctx)).collect())
         }
     }
 
@@ -535,7 +534,7 @@ impl Type {
                     assert!(ctx.get(new).is_none());
                     Type::Var(new)
                 },
-                Type::Term(name, args) => Type::Term(*name, args.iter().map(|t| instantiate_aux(t, ctx, shift_by)).collect()),
+                Type::Term(name, args) => Type::Term(name.clone(), args.iter().map(|t| instantiate_aux(t, ctx, shift_by)).collect()),
             }
         }
         // shift by the highest var that already exists, so that theres no conflict
@@ -578,28 +577,6 @@ impl<'a> Iterator for ArrowIterTypeRef<'a> {
     }
 }
 
-pub struct TermArgIter<'a> {
-    typeset: &'a TypeSet,
-    curr_idx: &'a Option<RawTypeRef>,
-}
-
-impl<'a> Iterator for TermArgIter<'a> {
-    type Item = RawTypeRef;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(curr_idx) = self.curr_idx {
-            if let TNode::ArgCons(arg,tl) = curr_idx.resolve(self.typeset) {
-                self.curr_idx = tl;
-                Some(*arg)
-            } else {
-                panic!("Cant iterate over something that's not a term")
-            }
-        } else {
-            None
-        }
-    }
-}
-
 
 
 impl std::str::FromStr for Type {
@@ -624,7 +601,7 @@ impl std::fmt::Display for Type {
                             write!(f, "(")?;
                         }
                         helper(&args[0], f, true)?;
-                        write!(f, " {} ", Type::ARROW)?;
+                        write!(f, " {} ", ARROW_SYM.as_ref())?;
                         helper(&args[1], f, false)?;
                         if arrow_parens {
                             write!(f, ")")?;
@@ -713,13 +690,13 @@ impl Context {
     /// avoid mutating the context for this lookup.
     /// Note the apply_immut version of this was wrong bc thats only safe to do on the hole_tp side and apply_immut
     /// is already done to the hole before then anyways
-    pub fn might_unify(&self, t1: &Type, t2: &Type) -> bool {
+    pub fn might_unify(t1: &Type, t2: &Type) -> bool {
         match (t1,t2) {
             (Type::Var(_), Type::Var(_)) => true,
             (Type::Var(_), Type::Term(_, _)) => true,
             (Type::Term(_, _), Type::Var(_)) => true,
             (Type::Term(x, xs), Type::Term(y, ys)) => {
-                x == y && xs.len() == ys.len() && xs.iter().zip(ys.iter()).all(|(x,y)| self.might_unify(x,y))
+                x == y && xs.len() == ys.len() && xs.iter().zip(ys.iter()).all(|(x,y)| Context::might_unify(x,y))
             },
         }
     }
@@ -831,42 +808,75 @@ impl std::fmt::Display for Context {
 }
 
 
-impl Expr {
-    pub fn infer<D: Domain>(&self, child: Option<Id>, ctx: &mut Context, env: &mut VecDeque<Type>) -> Result<Type,UnifyErr> {
+impl<'a> Expr<'a> {
+    pub fn infer<D: Domain>(&self, ctx: &mut Context, env: &mut VecDeque<Type>) -> Result<Type,UnifyErr> {
         // println!("infer({})", self.to_string_uncurried(child));
-        let child = child.unwrap_or_else(||self.root());
-        match &self.nodes[usize::from(child)] {
-            Lambda::App([f,x]) => {
+        match self.node() {
+            Node::App(f,x) => {
                 let return_tp = ctx.fresh_type_var();
-                let x_tp = self.infer::<D>(Some(*x), ctx, env)?;
-                let f_tp = self.infer::<D>(Some(*f), ctx, env)?;
+                let x_tp = self.get(*x).infer::<D>(ctx, env)?;
+                let f_tp = self.get(*f).infer::<D>(ctx, env)?;
                 ctx.unify(&f_tp, &Type::arrow(x_tp, return_tp.clone()))?;
                 Ok(return_tp.apply(ctx))
             },
-            Lambda::Lam([b]) => {
+            Node::Lam(b) => {
                 let var_tp = ctx.fresh_type_var();
                 // todo maybe optimize by making this a vecdeque for faster insert/remove at the zero index
                 env.push_front(var_tp.clone());
-                let body_tp = self.infer::<D>(Some(*b), ctx, env)?;
+                let body_tp = self.get(*b).infer::<D>(ctx, env)?;
                 env.pop_front();
                 Ok(Type::arrow(var_tp, body_tp).apply(ctx))
             },
-            Lambda::Var(i) => {
+            Node::Var(i) => {
                 if (*i as usize) >= env.len() {
                     panic!("unbound variable encountered during infer(): ${}", i)
                 }
                 Ok(env[*i as usize].apply(ctx))
             },
-            Lambda::IVar(_i) => {
+            Node::IVar(_i) => {
                 // interesting, I guess we can have this and it'd probably be easy to do
                 unimplemented!();
             }
-            Lambda::Prim(p) => {
-                Ok(D::type_of_prim(*p).instantiate(ctx))
+            Node::Prim(p) => {
+                Ok(D::type_of_prim(p).instantiate(ctx))
             },
-            Lambda::Programs(_) => panic!("trying to infer() type of Programs() node"),
         }
     }
+    // pub fn infer_ref<D: Domain>(&self, ctx: &mut TypeSet, env: &mut VecDeque<TypeRef>) -> Result<TypeRef,UnifyErr> {
+    //     // println!("infer({})", self.to_string_uncurried(child));
+    //     match self.node() {
+    //         Node::App(f,x) => {
+    //             let return_tp = ctx.fresh_type_var();
+    //             let x_tp = self.get(*x).infer_ref::<D>(ctx, env)?;
+    //             let f_tp = self.get(*f).infer_ref::<D>(ctx, env)?;
+    //             let arrow_tp = ctx.add_arrow(f_tp, x_tp);
+    //             ctx.unify(&f_tp, &Type::arrow(x_tp, return_tp.clone()))?;
+    //             Ok(return_tp.apply(ctx))
+    //         },
+    //         Node::Lam(b) => {
+    //             let var_tp = ctx.fresh_type_var();
+    //             // todo maybe optimize by making this a vecdeque for faster insert/remove at the zero index
+    //             env.push_front(var_tp.clone());
+    //             let body_tp = self.get(*b).infer_ref::<D>(ctx, env)?;
+    //             env.pop_front();
+    //             Ok(Type::arrow(var_tp, body_tp).apply(ctx))
+    //         },
+    //         Node::Var(i) => {
+    //             if (*i as usize) >= env.len() {
+    //                 panic!("unbound variable encountered during infer(): ${}", i)
+    //             }
+    //             Ok(env[*i as usize].apply(ctx))
+    //         },
+    //         Node::IVar(_i) => {
+    //             // interesting, I guess we can have this and it'd probably be easy to do
+    //             unimplemented!();
+    //         }
+    //         Node::Prim(p) => {
+    //             Ok(D::type_of_prim(p).instantiate(ctx))
+    //         },
+    //     }
+    // }
+    
 }
 
 
