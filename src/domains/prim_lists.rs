@@ -148,7 +148,7 @@ impl Domain for ListVal {
         // starts with `[` -> List
         // Note lists may contain ints, bools, or other lists in this domain
         else if p.starts_with('[') {
-            let elems: Vec<serde_json::value::Value> = serde_json::from_str(&p).ok()?;
+            let elems: Vec<serde_json::value::Value> = serde_json::from_str(p).ok()?;
             let valvec: Vec<Val> = parse_vec(&elems);
             Some(List(valvec).into())
         } else {

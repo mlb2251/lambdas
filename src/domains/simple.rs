@@ -103,7 +103,7 @@ impl Domain for SimpleVal {
         }
         // starts with `[` -> List (must be all ints)
         else if p.starts_with('[') {
-            let intvec: Vec<i32> = serde_json::from_str(&p).ok()?;
+            let intvec: Vec<i32> = serde_json::from_str(p).ok()?;
             let valvec: Vec<Val> = intvec.into_iter().map(|v|Dom(Int(v))).collect();
             Some(List(valvec).into())
         } else {

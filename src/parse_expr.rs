@@ -151,9 +151,9 @@ impl ExprSet {
             }
 
             let node = {
-                if let Some(rest) = item_str.strip_prefix("$") {
+                if let Some(rest) = item_str.strip_prefix('$') {
                     Node::Var(rest.parse::<i32>().map_err(|e|e.to_string())?)
-                } else if let Some(rest) = item_str.strip_prefix("#") {
+                } else if let Some(rest) = item_str.strip_prefix('#') {
                     Node::IVar(rest.parse::<i32>().map_err(|e|e.to_string())?)
                 } else {
                     Node::Prim(item_str.into())
@@ -163,7 +163,7 @@ impl ExprSet {
             *items_of_depth.last_mut().unwrap() += 1;
         }
 
-        if items.len() == 0 {
+        if items.is_empty() {
             return Err("ExprSet parse error: input is empty string".to_string());
         }
 

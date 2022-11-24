@@ -77,15 +77,14 @@ impl ExprOwned {
     }
     pub fn cost(&self, cost_fn: &ExprCost) -> i32 {
         assert!(self.set.struct_hash.is_none());
-        let res = self.set.iter().map(|i|
+        self.set.iter().map(|i|
             match self.set.get(i).node() {
                 Node::IVar(_) => cost_fn.cost_ivar,
                 Node::Var(_) => cost_fn.cost_var,
                 Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
                 Node::App(_, _) => cost_fn.cost_app,
                 Node::Lam(_) => cost_fn.cost_lam,
-            }).sum::<i32>();
-        res
+            }).sum::<i32>()
     }
     pub fn depth(&self) -> usize {
         *AnalyzedExpr::new(DepthAnalysis).analyze_get(self.immut())
@@ -179,13 +178,17 @@ impl ExprSet {
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
+    /// whether exprset is empty
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
     /// truncate the underlying vector of Nodes
     pub fn truncate(&mut self, len: usize) {
         self.nodes.truncate(len);
     }
     /// returns an iterator over the Idxs from 0 to the max Idx
     pub fn iter(&self) -> impl ExactSizeIterator<Item=Idx> {
-        (0..self.nodes.len()).into_iter()
+        0..self.nodes.len()
     }
 }
 
@@ -243,7 +246,7 @@ impl<'a> Expr<'a> {
     }
     /// iterate over the Idxs in the span of this Expr
     pub fn iter_span(&self) -> impl ExactSizeIterator<Item=Idx> {
-        self.get_span().unwrap().into_iter()
+        self.get_span().unwrap()
     }
     /// get the cost of this Expr by assuming that span() contains
     /// each node in the expression exactly once
@@ -602,8 +605,8 @@ mod tests {
         assert_eq!(set.get(e3).to_string(), "((lam $8) (+ 4 4))".to_string());
 
         // test copy_span
-        let mut other_set = &mut ExprSet::empty(Order::ChildFirst, true, false);
-        let e4 = other_set.parse_extend("(lam (lam $1))").unwrap();
+        let other_set = &mut ExprSet::empty(Order::ChildFirst, true, false);
+        let _ = other_set.parse_extend("(lam (lam $1))").unwrap();
         let e3_new = set.get(e3).copy_span(other_set);
         assert_eq!(set.get(e3).to_string(), other_set.get(e3_new).to_string());
 

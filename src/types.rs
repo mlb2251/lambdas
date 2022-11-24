@@ -324,7 +324,7 @@ impl TypeSet {
             (TNode::Var(_), TNode::Term(_, _)) => true,
             (TNode::Term(_, _), TNode::Var(_)) => true,
             (TNode::Term(x, xs), TNode::Term(y, ys)) => {
-                *x == *y && xs.len() == ys.len() && xs.iter().zip(ys.iter().map(|raw|raw.shift(canonical2.shift))).all(|(x,y)| self.might_unify(&x,&y))
+                *x == *y && xs.len() == ys.len() && xs.iter().zip(ys.iter().map(|raw|raw.shift(canonical2.shift))).all(|(x,y)| self.might_unify(x,&y))
             },
         }
     }
@@ -690,13 +690,13 @@ impl Context {
     /// avoid mutating the context for this lookup.
     /// Note the apply_immut version of this was wrong bc thats only safe to do on the hole_tp side and apply_immut
     /// is already done to the hole before then anyways
-    pub fn might_unify(&self, t1: &Type, t2: &Type) -> bool {
+    pub fn might_unify(t1: &Type, t2: &Type) -> bool {
         match (t1,t2) {
             (Type::Var(_), Type::Var(_)) => true,
             (Type::Var(_), Type::Term(_, _)) => true,
             (Type::Term(_, _), Type::Var(_)) => true,
             (Type::Term(x, xs), Type::Term(y, ys)) => {
-                x == y && xs.len() == ys.len() && xs.iter().zip(ys.iter()).all(|(x,y)| self.might_unify(x,y))
+                x == y && xs.len() == ys.len() && xs.iter().zip(ys.iter()).all(|(x,y)| Context::might_unify(x,y))
             },
         }
     }

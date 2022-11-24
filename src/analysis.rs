@@ -61,7 +61,6 @@ impl<A: Analysis> Index<Idx> for AnalyzedExpr<A> {
 impl Analysis for () {
     type Item = ();
     fn new(_: Expr, _: &AnalyzedExpr<Self>) -> Self {
-        ()
     }
 }
 
