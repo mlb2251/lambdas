@@ -20,6 +20,8 @@ pub use {
     types::*,
     util::*,
     parse_expr::*,
+    parse_type::*,
     analysis::*,
     zipper::*,
+    eval::Val::*,
 };

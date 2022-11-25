@@ -3,6 +3,7 @@ use crate::parse_type;
 use crate::*;
 use crate::dsl::Domain;
 use once_cell::sync::Lazy;
+use serde::{Serialize, Deserialize};
 
 
 
@@ -15,7 +16,7 @@ pub enum UnifyErr {
 }
 pub type UnifyResult = Result<(), UnifyErr>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Type {
     Var(usize), // type variable like t0 t1 etc
     Term(Symbol, Vec<Type>), // symbol is the name like "int" or "list" or "->" and Vec<Type> is the args which is empty list for things like int etc

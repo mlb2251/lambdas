@@ -99,7 +99,7 @@ macro_rules! fn_ptr_entries {
 macro_rules! dsl_entries_lookup_gen {
     (  
     ) => { 
-        fn lookup_fn_ptr(p: &Symbol) -> DSLFn {
+        fn lookup_fn_ptr(p: &Symbol) -> DSLFn<Self> {
             *LOOKUP_FN_PTR.get(&p).unwrap()
         }
         fn dsl_entry(p: &Symbol) -> Option<&'static DSLEntry<Self>> {

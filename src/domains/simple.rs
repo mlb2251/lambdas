@@ -25,13 +25,9 @@ type Val = crate::eval::Val<SimpleVal>;
 type LazyVal = crate::eval::LazyVal<SimpleVal>;
 type Evaluator<'a> = crate::eval::Evaluator<'a,SimpleVal>;
 type VResult = crate::eval::VResult<SimpleVal>;
-type DSLFn = crate::dsl::DSLFn<SimpleVal>;
 
 // to more concisely refer to the variants
 use SimpleVal::*;
-
-use crate::eval::Val::*;
-// use domain::Type::*;
 
 // this macro generates two global lazy_static constants: PRIM and FUNCS
 // which get used by `val_of_prim` and `fn_of_prim` below. In short they simply

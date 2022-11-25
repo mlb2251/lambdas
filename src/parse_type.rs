@@ -1,4 +1,13 @@
+use std::{path::Path, collections::HashMap, fs::File};
+use serde_json::from_reader;
+
 use crate::*;
+
+
+pub fn load_types(path: &Path) -> HashMap<Symbol,Type> {
+    let res: HashMap<Symbol,String> = from_reader(File::open(path).expect("file not found")).expect("json deserializing error");
+    res.into_iter().map(|(k,v)| (k,v.parse::<Type>().unwrap())).collect()
+}
 
 
 /// this gets used by 
@@ -147,6 +156,10 @@ fn test_parse_types() {
             ]),
         ]),
     ]));
+
+
+    // test load_types
+    load_types(Path::new("data/types_origami.json"));
     
 }
 
