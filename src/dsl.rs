@@ -11,7 +11,7 @@ pub type DSLFn<D> = fn(Env<D>, &Evaluator<D>) -> VResult<D>;
 pub struct Production<D: Domain> {
     pub name: Symbol, // eg "map" or "0" or "[1,2,3]"
     pub val: Val<D>,
-    pub tp: Type,
+    pub tp: SlowType,
     pub arity: usize,
     pub fn_ptr: Option<DSLFn<D>>,
 }
@@ -39,7 +39,7 @@ impl<D: Domain> Production<D> {
         Production::func_raw(name.into(), tp.parse().unwrap(), fn_ptr)
     }
 
-    pub fn val_raw(name: Symbol, tp: Type, val: Val<D>) -> Self {
+    pub fn val_raw(name: Symbol, tp: SlowType, val: Val<D>) -> Self {
         assert_eq!(tp.arity(),0);
         Production {
             name,
@@ -50,7 +50,7 @@ impl<D: Domain> Production<D> {
         }
     }
 
-    pub fn func_raw(name: Symbol, tp: Type, fn_ptr: DSLFn<D>) -> Self {
+    pub fn func_raw(name: Symbol, tp: SlowType, fn_ptr: DSLFn<D>) -> Self {
         let arity = tp.arity();
         Production {
             name: name.clone(),
@@ -84,7 +84,7 @@ impl<D: Domain> DSL<D> {
             D::val_of_prim_fallback(p))
     }
 
-    pub fn type_of_prim(&self, p: &Symbol) -> Type {
+    pub fn type_of_prim(&self, p: &Symbol) -> SlowType {
         self.productions.get(p).map(|entry| entry.tp.clone()).unwrap_or_else(|| {
             D::type_of_dom_val(&self.val_of_prim(p).unwrap().dom().unwrap())
         })
@@ -99,7 +99,7 @@ pub trait Domain: Clone + Debug + PartialEq + Eq + Hash {
 
     fn val_of_prim_fallback(p: &Symbol) -> Option<Val<Self>>;
 
-    fn type_of_dom_val(&self) -> Type;
+    fn type_of_dom_val(&self) -> SlowType;
 
     fn new_dsl() -> DSL<Self>;
 }

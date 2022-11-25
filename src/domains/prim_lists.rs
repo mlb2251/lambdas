@@ -147,19 +147,19 @@ impl Domain for ListVal {
     }
 
     // gets the type of a value
-    fn type_of_dom_val(&self) -> Type {
+    fn type_of_dom_val(&self) -> SlowType {
         match self {
-            Int(_) => Type::base(Symbol::from("int")),
-            Bool(_) =>  Type::base("bool".into()),
+            Int(_) => SlowType::base(Symbol::from("int")),
+            Bool(_) =>  SlowType::base("bool".into()),
             List(xs) => {
                 let elem_tp = if xs.is_empty() {
-                    Type::Var(0) // (list t0)
+                    SlowType::Var(0) // (list t0)
                 } else {
                     // todo here we just use the type of the first entry as the type
                     Self::type_of_dom_val(&xs.first().unwrap().clone().dom().unwrap())
                     // assert!(xs.iter().all(|v| Self::type_of_dom_val(v.clone().dom().unwrap())))
                 };
-                Type::Term("list".into(),vec![elem_tp])
+                SlowType::Term("list".into(),vec![elem_tp])
             },
         }
     }

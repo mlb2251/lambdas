@@ -102,18 +102,18 @@ impl Domain for SimpleVal {
         }
     }
 
-    fn type_of_dom_val(&self) -> Type {
+    fn type_of_dom_val(&self) -> SlowType {
         match self {
-            Int(_) => Type::base(Symbol::from("int")),
+            Int(_) => SlowType::base(Symbol::from("int")),
             List(xs) => {
                 let elem_tp = if xs.is_empty() {
-                    Type::Var(0) // (list t0)
+                    SlowType::Var(0) // (list t0)
                 } else {
                     // todo here we just use the type of the first entry as the type
                     Self::type_of_dom_val(&xs.first().unwrap().clone().dom().unwrap())
                     // assert!(xs.iter().all(|v| Self::type_of_dom_val(v.clone().dom().unwrap())))
                 };
-                Type::Term("list".into(),vec![elem_tp])
+                SlowType::Term("list".into(),vec![elem_tp])
             },
         }
     }
@@ -173,13 +173,15 @@ mod tests {
 
         fn assert_unify(t1: &str, t2: &str, expected: UnifyResult) {
             let mut ctx = Context::empty();
-            let res = ctx.unify(&t1.parse::<Type>().unwrap(),
-                        &t2.parse::<Type>().unwrap());
+            let res = ctx.unify(&t1.parse::<SlowType>().unwrap(),
+                        &t2.parse::<SlowType>().unwrap());
             assert_eq!(res, expected);
 
             let mut typeset = TypeSet::empty();
-            let t1 = typeset.add_tp(&t1.parse::<Type>().unwrap()).instantiate(&mut typeset);
-            let t2 = typeset.add_tp(&t2.parse::<Type>().unwrap()).instantiate(&mut typeset);
+            let t1 = typeset.add_tp(&t1.parse::<SlowType>().unwrap());
+            let t1 = typeset.instantiate(t1);
+            let t2 = typeset.add_tp(&t2.parse::<SlowType>().unwrap());
+            let t2 = typeset.instantiate(t2);
             let res = typeset.unify(&t1,&t2);
             assert_eq!(res, expected);
         }
@@ -188,7 +190,7 @@ mod tests {
             let mut set = ExprSet::empty(Order::ChildFirst, false, false);
             let e = set.parse_extend(p).unwrap();
             let res = set.get(e).infer::<SimpleVal>(&mut Context::empty(), &mut Default::default(), &SimpleVal::new_dsl());
-            assert_eq!(res, expected.map(|ty| ty.parse::<Type>().unwrap()));
+            assert_eq!(res, expected.map(|ty| ty.parse::<SlowType>().unwrap()));
         }
 
         assert_unify("int", "int", Ok(()));

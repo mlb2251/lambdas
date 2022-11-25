@@ -5,7 +5,7 @@ use crate::*;
 
 
 /// this gets used by 
-pub fn parse(s: &str) -> Result<Type, String> {
+pub fn parse(s: &str) -> Result<SlowType, String> {
     let (ty, s_left) = parse_aux(s).map_err(|e| format!("{}\n when parsing: {}", e, s))?;
         if !s_left.is_empty() {
             return Err(format!("Type parse() error: extra closeparen\n when parsing: {}",s))
@@ -16,11 +16,11 @@ pub fn parse(s: &str) -> Result<Type, String> {
 /// parses `s` into a type until hitting either a closeparen that hasn't been opened
 /// in `s`, or an end of string, and returns the type and the remaining string not including
 /// the closeparen if there was one
-fn parse_aux(mut s: &str) -> Result<(Type, &str), String> {
+fn parse_aux(mut s: &str) -> Result<(SlowType, &str), String> {
     let arrow = ARROW_SYM.as_ref();
     let mut res = vec![];
 
-    fn finish(mut res: Vec<Type>) -> Result<Type, String> {
+    fn finish(mut res: Vec<SlowType>) -> Result<SlowType, String> {
         if res.is_empty() {
             return Err("Type parse() error: unexpected empty parens or empty string in type".into())
         }
@@ -30,12 +30,12 @@ fn parse_aux(mut s: &str) -> Result<(Type, &str), String> {
         }
         let head = res.remove(0);
         match head {
-            Type::Var(_) => Err("Type parse() error: type variable is applied to args".into()),
-            Type::Term(name, args) => {
+            SlowType::Var(_) => Err("Type parse() error: type variable is applied to args".into()),
+            SlowType::Term(name, args) => {
                 if !args.is_empty() {
                     Err("Type parse() error: Term type applied to args like ((list int) int)".into())
                 } else {
-                    Ok(Type::Term(name, res))
+                    Ok(SlowType::Term(name, res))
                 }
             }
         }
@@ -69,7 +69,7 @@ fn parse_aux(mut s: &str) -> Result<(Type, &str), String> {
         // check if it's a var like t0 t23 etc
         if let Some(rest) = item.strip_prefix('t') {
             if let Ok(i) = rest.parse::<usize>() {
-                res.push(Type::Var(i));
+                res.push(SlowType::Var(i));
                 continue
             }
         }
@@ -86,74 +86,12 @@ fn parse_aux(mut s: &str) -> Result<(Type, &str), String> {
             let (ty_right, s_new) = parse_aux(&s[1..])?;
             s = s_new;
             // construct the arrow
-            return Ok((Type::Term(ARROW_SYM.clone(), vec![ty_left, ty_right]),s));
+            return Ok((SlowType::Term(ARROW_SYM.clone(), vec![ty_left, ty_right]),s));
         }
         
         // parse it as a new atomic type
-        res.push(Type::Term(item.into(), vec![]))
+        res.push(SlowType::Term(item.into(), vec![]))
 
     }
-}
-
-
-#[test]
-fn test_parse_types() {
-    assert_eq!("int".parse::<Type>().unwrap(),
-        Type::Term("int".into(), vec![]));
-
-    assert_eq!("((int))".parse::<Type>().unwrap(),
-        Type::Term("int".into(), vec![]));
-
-    assert_eq!("list int".parse::<Type>().unwrap(),
-    Type::Term("list".into(), vec![
-        Type::Term("int".into(), vec![])
-    ]));
-
-    assert_eq!("(foo -> bar)".parse::<Type>().unwrap(),
-    Type::Term(ARROW_SYM.clone(), vec![
-        Type::Term("foo".into(), vec![]),
-        Type::Term("bar".into(), vec![]),
-    ]));
-
-    assert_eq!("foo -> bar".parse::<Type>().unwrap(),
-    Type::Term(ARROW_SYM.clone(), vec![
-        Type::Term("foo".into(), vec![]),
-        Type::Term("bar".into(), vec![]),
-    ]));
-
-    assert_eq!("(foo -> bar -> baz)".parse::<Type>().unwrap(),
-    Type::Term(ARROW_SYM.clone(), vec![
-        Type::Term("foo".into(), vec![]),
-        Type::Term(ARROW_SYM.clone(), vec![
-            Type::Term("bar".into(), vec![]),
-            Type::Term("baz".into(), vec![]),
-        ]),
-    ]));
-
-    assert_eq!("t2".parse::<Type>().unwrap(),
-        Type::Var(2));
-
-
-    // the map() type
-    assert_eq!("(t0 -> t1) -> (list t0) -> (list t1)".parse::<Type>().unwrap(),
-    Type::Term(ARROW_SYM.clone(), vec![
-        Type::Term(ARROW_SYM.clone(), vec![
-            Type::Var(0),
-            Type::Var(1),
-        ]),
-        Type::Term(ARROW_SYM.clone(), vec![
-            Type::Term("list".into(), vec![
-                Type::Var(0)
-            ]),
-            Type::Term("list".into(), vec![
-                Type::Var(1)
-            ]),
-        ]),
-    ]));
-
-
-    // test load_types
-    // load_types(Path::new("data/types_origami.json"));
-    
 }
 

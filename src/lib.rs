@@ -11,6 +11,7 @@ mod util;
 mod analysis;
 mod zipper;
 pub mod domains;
+mod slow_types;
 
 pub use {
     string_cache::DefaultAtom as Symbol,
@@ -18,6 +19,7 @@ pub use {
     dsl::*,
     eval::*,
     types::*,
+    slow_types::*,
     util::*,
     parse_expr::*,
     parse_type::*,
