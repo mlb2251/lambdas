@@ -6,6 +6,18 @@ use once_cell::sync::Lazy;
 use serde::{Serialize, Deserialize};
 
 
+// use std::{path::Path, collections::HashMap, fs::File};
+// use serde_json::from_reader;
+
+// /// Mapping from DSL symbols to types
+// pub struct TypeMap {
+//     pub map: HashMap<Symbol, Type>,
+// }
+
+// pub fn load_types(path: &Path) -> TypeMap {
+//     let res: HashMap<Symbol,String> = from_reader(File::open(path).expect("file not found")).expect("json deserializing error");
+//     TypeMap { map: res.into_iter().map(|(k,v)| (k,v.parse::<Type>().unwrap())).collect() }
+// }
 
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,17 +34,6 @@ pub enum Type {
     Term(Symbol, Vec<Type>), // symbol is the name like "int" or "list" or "->" and Vec<Type> is the args which is empty list for things like int etc
     // Arrow(Box<Type>,Box<Type>)
 }
-
-
-/// int
-/// [Term("int",None)]
-/// 
-/// (list int)
-/// [Term("int",None),Term("list",0)]
-/// 
-/// (-> int int)
-/// [Term("int",None), Term("int",None), ArgCons(0,1), Term("->", Some(2))]
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TNode {
@@ -810,13 +811,13 @@ impl std::fmt::Display for Context {
 
 
 impl<'a> Expr<'a> {
-    pub fn infer<D: Domain>(&self, ctx: &mut Context, env: &mut VecDeque<Type>) -> Result<Type,UnifyErr> {
+    pub fn infer<D: Domain>(&self, ctx: &mut Context, env: &mut VecDeque<Type>, dsl: &DSL<D>) -> Result<Type,UnifyErr> {
         // println!("infer({})", self.to_string_uncurried(child));
         match self.node() {
             Node::App(f,x) => {
                 let return_tp = ctx.fresh_type_var();
-                let x_tp = self.get(*x).infer::<D>(ctx, env)?;
-                let f_tp = self.get(*f).infer::<D>(ctx, env)?;
+                let x_tp = self.get(*x).infer::<D>(ctx, env, dsl)?;
+                let f_tp = self.get(*f).infer::<D>(ctx, env, dsl)?;
                 ctx.unify(&f_tp, &Type::arrow(x_tp, return_tp.clone()))?;
                 Ok(return_tp.apply(ctx))
             },
@@ -824,7 +825,7 @@ impl<'a> Expr<'a> {
                 let var_tp = ctx.fresh_type_var();
                 // todo maybe optimize by making this a vecdeque for faster insert/remove at the zero index
                 env.push_front(var_tp.clone());
-                let body_tp = self.get(*b).infer::<D>(ctx, env)?;
+                let body_tp = self.get(*b).infer::<D>(ctx, env, dsl)?;
                 env.pop_front();
                 Ok(Type::arrow(var_tp, body_tp).apply(ctx))
             },
@@ -839,7 +840,7 @@ impl<'a> Expr<'a> {
                 unimplemented!();
             }
             Node::Prim(p) => {
-                Ok(D::type_of_prim(p).instantiate(ctx))
+                Ok(dsl.type_of_prim(p).instantiate(ctx))
             },
         }
     }

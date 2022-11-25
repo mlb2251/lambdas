@@ -3,89 +3,104 @@ use crate::*;
 use std::collections::HashMap;
 use std::fmt::{Debug};
 use std::hash::Hash;
-use std::collections::hash_map::Values;
 
 
 pub type DSLFn<D> = fn(Env<D>, &Evaluator<D>) -> VResult<D>;
 
 #[derive(Clone)]
-pub struct DSLEntry<D: Domain> {
+pub struct Production<D: Domain> {
     pub name: Symbol, // eg "map" or "0" or "[1,2,3]"
     pub val: Val<D>,
     pub tp: Type,
     pub arity: usize,
+    pub fn_ptr: Option<DSLFn<D>>,
 }
 
-#[derive(Clone)]
+impl<D:Domain> Debug for Production<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Production").field("name", &self.name).field("val", &self.val).field("tp", &self.tp).field("arity", &self.arity).finish()
+    }
+}
+
+
+#[derive(Clone, Debug)]
 pub struct DSL<D:Domain> {
-    pub entries: HashMap<Symbol,DSLEntry<D>>,
+    pub productions: HashMap<Symbol,Production<D>>,
+    // pub lookup_fn_ptr: HashMap<Symbol,DSLFn<D>>,
 }
 
-impl<D: Domain> DSLEntry<D> {
-    pub fn new(name: Symbol, val: Val<D>, tp: Type) -> Self {
-        let arity = tp.arity();
-        DSLEntry {
+impl<D: Domain> Production<D> {
+
+    pub fn val(name: &str, tp: &str, val: Val<D>) -> Self {
+        Production::val_raw(name.into(), tp.parse().unwrap(), val)
+    }
+
+    pub fn func(name: &str, tp: &str, fn_ptr: DSLFn<D>) -> Self {
+        Production::func_raw(name.into(), tp.parse().unwrap(), fn_ptr)
+    }
+
+    pub fn val_raw(name: Symbol, tp: Type, val: Val<D>) -> Self {
+        assert_eq!(tp.arity(),0);
+        Production {
             name,
             val,
             tp,
-            arity,
+            arity: 0,
+            fn_ptr: None,
         }
     }
+
+    pub fn func_raw(name: Symbol, tp: Type, fn_ptr: DSLFn<D>) -> Self {
+        let arity = tp.arity();
+        Production {
+            name: name.clone(),
+            val: PrimFun(CurriedFn::<D>::new(name, arity)),
+            tp,
+            arity,
+            fn_ptr: Some(fn_ptr),
+        }
+    }
+
+
+
 }
 impl<D: Domain> DSL<D> {
-    pub fn new( entries: Vec<DSLEntry<D>> ) -> Self {
+    pub fn new(productions: Vec<Production<D>>) -> Self {
         DSL {
-            entries: entries.into_iter().map(|entry| (entry.name.clone(), entry)).collect()
+            productions: productions.into_iter().map(|entry| (entry.name.clone(), entry)).collect(),
         }
     }
+
+    /// add an entry to the DSL
+    pub fn add_entry(&mut self, entry: Production<D>) {
+        assert!(!self.productions.contains_key(&entry.name));
+        self.productions.insert(entry.name.clone(), entry);
+    }
+
+    /// given a primitive's symbol return a runtime Val object. For function primitives
+    /// this should return a PrimFun(CurriedFn) object.
+    pub fn val_of_prim(&self, p: &Symbol) -> Option<Val<D>> {
+        self.productions.get(p).map(|entry| entry.val.clone()).or_else(||
+            D::val_of_prim_fallback(p))
+    }
+
+    pub fn type_of_prim(&self, p: &Symbol) -> Type {
+        self.productions.get(p).map(|entry| entry.tp.clone()).unwrap_or_else(|| {
+            D::type_of_dom_val(&self.val_of_prim(p).unwrap().dom().unwrap())
+        })
+    }
+
 }
 
 
 /// The key trait that defines a domain
-pub trait Domain: Clone + Debug + PartialEq + Eq + Hash + 'static {
-    /// Domain::Data is attached to the Evaluator so all DSL functions will have a
-    /// mut ref to it (through the handle argument). Feel free to make it the empty
-    /// tuple if you dont need it.
-    /// Motivation: For some complicated domains you could leave Ids as pointers and
-    /// have your domaindata be a system to lookup the actual value from the pointer
-    /// (and guarantee no value has multiple pointers so that comparison works by Ids).
-    /// Btw, I briefly implemented it so that the whole system worked by these pointers
-    /// and it was absolutely miserable, see my notes. But this is here if someone finds
-    /// a use for it. Ofc be careful not to break function purity with this but otherwise
-    /// be creative :)
+pub trait Domain: Clone + Debug + PartialEq + Eq + Hash {
     type Data: Debug + Default;
-    // type Type: Debug + Clone + PartialEq + Eq + Hash;
-
-    /// given a primitive's symbol return a runtime Val object. For function primitives
-    /// this should return a PrimFun(CurriedFn) object.
-    fn val_of_prim(p: &Symbol) -> Option<Val<Self>> {
-        Self::dsl_entry(p).map(|entry| entry.val.clone()).or_else(||
-            Self::val_of_prim_fallback(p))
-    }
 
     fn val_of_prim_fallback(p: &Symbol) -> Option<Val<Self>>;
 
-    /// given a function primitive's symbol return the function pointer
-    /// you can use to call the function.
-    /// Breakdown of the function type: it takes a slice of values as input (the args)
-    /// along with a mut ref to an Expr (I'll refer to as a "handle") which is necessary
-    /// for calling .apply(f,x). This setup with a handle guarantees we can always track
-    /// when applys happen and log them in our Expr.evals, and also it's necessary for
-    /// executing LamClosures in order to look up their body Id (and we wouldn't want
-    /// LamClosures to carry around full Exprs because that would break the Expr.evals tracking)
-    fn lookup_fn_ptr(p: &Symbol) -> DSLFn<Self>;
-
-    fn dsl_entry(p: &Symbol) -> Option<&'static DSLEntry<Self>>;
-
-    fn dsl_entries() -> Values<'static, Symbol, DSLEntry<Self>>;
-
     fn type_of_dom_val(&self) -> Type;
 
-    fn type_of_prim(p: &Symbol) -> Type {
-        Self::dsl_entry(p).map(|entry| entry.tp.clone()).unwrap_or_else(|| {
-            Self::type_of_dom_val(&Self::val_of_prim(p).unwrap().dom().unwrap())
-        })
-    }
-
+    fn new_dsl() -> DSL<Self>;
 }
 

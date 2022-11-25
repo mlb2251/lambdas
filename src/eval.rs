@@ -70,18 +70,20 @@ pub struct Evaluator<'a, D: Domain> {
     pub expr: Expr<'a>,
     pub data: RefCell<D::Data>,
     pub start_and_timelimit: Option<(Instant, Duration)>,
+    pub dsl: &'a DSL<D>,
 }
 
 impl<'a> Expr<'a> {
-    pub fn eval<D:Domain>(&self, env: &mut [LazyVal<D>], timelimit: Option<Duration>) -> VResult<D> {
-        self.as_eval(timelimit).eval_child(self.idx, env)
+    pub fn eval<D:Domain>(&self, env: &mut [LazyVal<D>], dsl: &DSL<D>, timelimit: Option<Duration>) -> VResult<D> {
+        self.as_eval(dsl, timelimit).eval_child(self.idx, env)
     }
-    pub fn as_eval<D:Domain>(self, timelimit: Option<Duration>) -> Evaluator<'a, D> {
+    pub fn as_eval<D:Domain>(self, dsl: &'a DSL<D>, timelimit: Option<Duration>) -> Evaluator<'a, D> {
         let start_and_timelimit = timelimit.map(|d| (Instant::now(),d));
         Evaluator {
             expr: self,
             data: Default::default(),
-            start_and_timelimit
+            start_and_timelimit,
+            dsl
         }
     }
 }
@@ -122,7 +124,7 @@ impl<D: Domain> CurriedFn<D> {
         let mut new_dslfn = self.clone();
         new_dslfn.partial_args.push(arg);
         if new_dslfn.partial_args.len() == new_dslfn.arity {
-            (D::lookup_fn_ptr(&new_dslfn.name)) (new_dslfn.partial_args, handle)
+            handle.dsl.productions.get(&new_dslfn.name).unwrap().fn_ptr.unwrap() (new_dslfn.partial_args, handle)
         } else {
             Ok(Val::PrimFun(new_dslfn))
         }
@@ -197,7 +199,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
                 self.apply_lazy(&f_val, x_val)?
             }
             Node::Prim(p) => {
-                match D::val_of_prim(p) {
+                match self.dsl.val_of_prim(p) {
                     Some(v) => v,
                     None => panic!("Prim `{}` not found",p),
                 }

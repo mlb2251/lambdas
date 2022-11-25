@@ -20,7 +20,7 @@ where T: FromVal<D> + Debug + PartialEq,
     let mut set = ExprSet::empty(Order::ChildFirst, false, false);
     let e = set.parse_extend(expr).unwrap();
     let mut args: Vec<LazyVal<D>> = args.iter().map(|arg|LazyVal::new_strict(arg.clone())).collect();
-    let res = set.get(e).eval(&mut args, None).unwrap();
+    let res = set.get(e).eval(&mut args, &D::new_dsl(), None).unwrap();
     assert_eq_val(&res,expected);
 }
 
@@ -30,7 +30,7 @@ where T: FromVal<D> + Debug + PartialEq
     let mut set = ExprSet::empty(Order::ChildFirst, false, false);
     let e = set.parse_extend(expr).unwrap();
     let mut args: Vec<LazyVal<D>> = args.iter().map(|arg|LazyVal::new_strict(arg.clone())).collect();
-    let res = set.get(e).eval(&mut args, None);
+    let res = set.get(e).eval(&mut args, &D::new_dsl(), None);
     assert!(res.is_err());
     assert_eq!(expected_error_msg, res.err().unwrap());
 }

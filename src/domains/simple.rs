@@ -1,7 +1,6 @@
 /// This is an example domain, heavily commented to explain how to implement your own!
 
 use crate::*;
-use std::collections::HashMap;
 
 /// A simple domain with ints and polymorphic lists (allows nested lists).
 /// Generally it's good to be able to imagine the hindley milner type system
@@ -28,22 +27,6 @@ type VResult = crate::eval::VResult<SimpleVal>;
 
 // to more concisely refer to the variants
 use SimpleVal::*;
-
-// this macro generates two global lazy_static constants: PRIM and FUNCS
-// which get used by `val_of_prim` and `fn_of_prim` below. In short they simply
-// associate the strings on the left with the rust function and arity on the right.
-define_semantics! {
-    SimpleVal;
-    "+" = (add, "int -> int -> int"),
-    "*" = (mul, "int -> int -> int"),
-    "map" = (map, "(t0 -> t1) -> (list t0) -> (list t1)"),
-    "sum" = (sum, "list int -> int"),
-    "0" = "int",
-    "1" = "int",
-    "2" = "int",
-    "[]" = "(list t0)",
-    //const "0" = Dom(Int(0)) //todo add support for constants
-}
 
 
 // From<Val> impls are needed for unwrapping values. We can assume the program
@@ -84,7 +67,19 @@ impl<T: Into<Val>> From<Vec<T>> for Val {
 impl Domain for SimpleVal {
     // we dont use Data here
     type Data = ();
-    // type Type = SimpleType;
+
+    fn new_dsl() -> DSL<Self> {
+        DSL::new(vec![
+            Production::func("+", "int -> int -> int", add),
+            Production::func("*", "int -> int -> int", mul),
+            Production::func("map", "(t0 -> t1) -> (list t0) -> (list t1)", map),
+            Production::func("sum", "list int -> int", sum),
+            Production::val("0", "int", Dom(Int(0))),
+            Production::val("1", "int", Dom(Int(1))),
+            Production::val("2", "int", Dom(Int(2))),
+            Production::val("[]", "(list t0)", Dom(List(vec![]))),
+        ])
+    }
 
     // val_of_prim takes a symbol like "+" or "0" and returns the corresponding Val.
     // Note that it can largely just be a call to the global hashmap PRIMS that define_semantics generated
@@ -106,8 +101,6 @@ impl Domain for SimpleVal {
             None
         }
     }
-
-    dsl_entries_lookup_gen!();
 
     fn type_of_dom_val(&self) -> Type {
         match self {
@@ -194,7 +187,7 @@ mod tests {
         fn assert_infer(p: &str, expected: Result<&str, UnifyErr>) {
             let mut set = ExprSet::empty(Order::ChildFirst, false, false);
             let e = set.parse_extend(p).unwrap();
-            let res = set.get(e).infer::<SimpleVal>(&mut Context::empty(), &mut Default::default());
+            let res = set.get(e).infer::<SimpleVal>(&mut Context::empty(), &mut Default::default(), &SimpleVal::new_dsl());
             assert_eq!(res, expected.map(|ty| ty.parse::<Type>().unwrap()));
         }
 
@@ -218,21 +211,23 @@ mod tests {
     #[test]
     fn test_eval_simple() {
 
+        let dsl = SimpleVal::new_dsl();
+
         assert_execution::<domains::simple::SimpleVal, i32>("(+ 1 2)", &[], 3);
 
         assert_execution::<domains::simple::SimpleVal, i32>("(sum (map (lam $0) []))", &[], 0);
         
 
-        let arg = SimpleVal::val_of_prim(&"[1,2,3]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[1,2,3]".into()).unwrap();
         assert_execution("(map (lam (+ 1 $0)) $0)", &[arg], vec![2,3,4]);
 
-        let arg = SimpleVal::val_of_prim(&"[1,2,3]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[1,2,3]".into()).unwrap();
         assert_execution("(sum (map (lam (+ 1 $0)) $0))", &[arg], 9);
 
-        let arg = SimpleVal::val_of_prim(&"[1,2,3]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[1,2,3]".into()).unwrap();
         assert_execution("(map (lam (* $0 $0)) (map (lam (+ 1 $0)) $0))", &[arg], vec![4,9,16]);
 
-        let arg = SimpleVal::val_of_prim(&"[1,2,3]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[1,2,3]".into()).unwrap();
         assert_execution("(map (lam (* $0 $0)) (map (lam (+ (sum $1) $0)) $0))", &[arg], vec![49,64,81]);
 
     }

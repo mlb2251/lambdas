@@ -1,7 +1,6 @@
 // The primitive list domain from Josh Rule's thesis, p.170.
 
 use crate::*;
-use std::collections::HashMap;
 
 #[derive(Clone,Debug, PartialEq, Eq, Hash)]
 pub enum ListVal {
@@ -20,30 +19,6 @@ type LazyVal = crate::eval::LazyVal<ListVal>;
 type Evaluator<'a> = crate::eval::Evaluator<'a,ListVal>;
 type VResult = crate::eval::VResult<ListVal>;
 use ListVal::*;
-
-// this macro generates two global lazy_static constants: PRIM and FUNCS
-// which get used by `val_of_prim` and `fn_of_prim` below. In short they simply
-// associate the strings on the left with the rust function and arity on the right.
-define_semantics! {
-    ListVal;
-    "cons" = (cons, "t0 -> list t0 -> list t0"),
-    "+" = (add, "int -> int -> int"),
-    "-" = (sub,  "int -> int -> int"),
-    ">" = (gt, "int -> int -> bool"),
-    "if" = (branch, "bool -> t0 -> t0 -> t0"),
-    "==" = (eq, "t0 -> t0 -> bool"),
-    "is_empty" = (is_empty, "list t0 -> bool"),
-    "head" = (head, "list t0 -> t0"),
-    "tail" = (tail, "list t0 -> list t0"),
-    // fix f x = f(fix f)(x)
-    // note in historical origami logs dreamcoder actually uses the signature: t0 -> ((t0 -> t1) -> t0 -> t1) -> t1    fix1
-    "fix_flip" = (fix_flip, "t0 -> ((t0 -> t1) -> t0 -> t1) -> t1"),
-    "fix" = (fix, "((t0 -> t1) -> t0 -> t1) -> t0 -> t1"),
-    "0" = "int",
-    "1" = "int",
-    "[]" = "list t0",
-}
-
 
 
 // From<Val> impls are needed for unwrapping values. We can assume the program
@@ -119,11 +94,30 @@ impl Domain for ListVal {
 
     type Data = ListData;  // Use Data as fix-point invocation counter
 
-    // val_of_prim takes a symbol like "+" or "0" and returns the corresponding Val.
-    // Note that it can largely just be a call to the global hashmap PRIMS that define_semantics generated
-    // however you're also free to do any sort of generic parsing you want, allowing for domains with
-    // infinite sets of values or dynamically generated values. For example here we support all integers
-    // and all integer lists.
+    fn new_dsl() -> DSL<Self> {
+        DSL::new(vec![
+            Production::func("cons", "t0 -> list t0 -> list t0", cons),
+            Production::func("+", "int -> int -> int", add),
+            Production::func("-", "int -> int -> int", sub),
+            Production::func(">", "int -> int -> bool", gt),
+            Production::func("if", "bool -> t0 -> t0 -> t0", branch),
+            Production::func("==", "t0 -> t0 -> bool", eq),
+            Production::func("is_empty", "list t0 -> bool", is_empty),
+            Production::func("head", "list t0 -> t0", head),
+            Production::func("tail", "list t0 -> list t0", tail),
+            // note in historical origami logs dreamcoder actually uses the signature: t0 -> ((t0 -> t1) -> t0 -> t1) -> t1    fix1
+            // which is why we include fix_flip to use that order of arguments
+            Production::func("fix_flip", "t0 -> ((t0 -> t1) -> t0 -> t1) -> t1", fix_flip),
+            Production::func("fix", "((t0 -> t1) -> t0 -> t1) -> t0 -> t1", fix),
+            Production::val("0", "int", Dom(Int(0))),
+            Production::val("1", "int", Dom(Int(1))),
+            Production::val("[]", "list t0", Dom(List(vec![]))),
+        ])
+    }
+
+    // This is a fallback function used for supporting infinite DSLs, for example here we support all integers
+    // and all integer lists. This function is called when a symbol isn't found in the DSL.
+    // A simple default implementation is just to return `None`.
     fn val_of_prim_fallback(p: &Symbol) -> Option<Val> {
         // starts with digit or negative sign -> Int
         if p.chars().next().unwrap().is_ascii_digit() || p.starts_with('-') {
@@ -152,8 +146,7 @@ impl Domain for ListVal {
         }
     }
 
-    dsl_entries_lookup_gen!();
-
+    // gets the type of a value
     fn type_of_dom_val(&self) -> Type {
         match self {
             Int(_) => Type::base(Symbol::from("int")),
@@ -173,8 +166,9 @@ impl Domain for ListVal {
 
 }
 
-
+// *********************
 // *** DSL FUNCTIONS ***
+// *********************
 
 fn cons(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
     load_args!(handle, args, x:Val, xs:Vec<Val>); 
@@ -273,11 +267,13 @@ mod tests {
     #[test]
     fn test_eval_prim_lists() {
 
-        let arg = ListVal::val_of_prim(&"[]".into()).unwrap();
+        let dsl = ListVal::new_dsl();
+
+        let arg = dsl.val_of_prim(&"[]".into()).unwrap();
         assert_execution::<ListVal, Vec<Val>>("(if (is_empty $0) $0 (tail $0))", &[arg], vec![]);
 
         // test cons
-        let arg = ListVal::val_of_prim(&"[1,2,3]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[1,2,3]".into()).unwrap();
         assert_execution("(cons 0 $0)", &[arg], vec![0,1,2,3]);
 
         // test +
@@ -297,43 +293,43 @@ mod tests {
         // test ==
         assert_execution::<ListVal, bool>("(== 5 5)", &[], true);
         assert_execution::<ListVal, bool>("(== 5 50)", &[], false);
-        let arg1 = ListVal::val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
-        let arg2 = ListVal::val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
+        let arg1 = dsl.val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
+        let arg2 = dsl.val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
         assert_execution::<ListVal, bool>("(== $0 $1)", &[arg1, arg2], true);
-        let arg1 = ListVal::val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
-        let arg2 = ListVal::val_of_prim(&"[[3],[4,5]]".into()).unwrap();
+        let arg1 = dsl.val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
+        let arg2 = dsl.val_of_prim(&"[[3],[4,5]]".into()).unwrap();
         assert_execution::<ListVal, bool>("(== $0 $1)", &[arg1, arg2], false);
-        let arg1 = ListVal::val_of_prim(&"[[]]".into()).unwrap();
-        let arg2 = ListVal::val_of_prim(&"[]".into()).unwrap();
+        let arg1 = dsl.val_of_prim(&"[[]]".into()).unwrap();
+        let arg2 = dsl.val_of_prim(&"[]".into()).unwrap();
         assert_execution::<ListVal, bool>("(== $0 $1)", &[arg1, arg2], false);
-        let arg1 = ListVal::val_of_prim(&"[]".into()).unwrap();
-        let arg2 = ListVal::val_of_prim(&"[]".into()).unwrap();
+        let arg1 = dsl.val_of_prim(&"[]".into()).unwrap();
+        let arg2 = dsl.val_of_prim(&"[]".into()).unwrap();
         assert_execution::<ListVal, bool>("(== $0 $1)", &[arg1, arg2], true);
 
         // test is_empty
-        let arg = ListVal::val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
         assert_execution("(is_empty $0)", &[arg], false);
-        let arg = ListVal::val_of_prim(&"[]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[]".into()).unwrap();
         assert_execution("(is_empty $0)", &[arg], true);
 
         // test head
-        let arg = ListVal::val_of_prim(&"[[1,2],[3],[4,5]]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[[1,2],[3],[4,5]]".into()).unwrap();
         assert_execution("(head $0)", &[arg], vec![1,2]);
 
         // test tail
-        let arg = ListVal::val_of_prim(&"[[1,2],[3],[4,5]]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[[1,2],[3],[4,5]]".into()).unwrap();
         assert_execution("(tail $0)", &[arg], vec![vec![3], vec![4, 5]]);
-        let arg = ListVal::val_of_prim(&"[[1,2]]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[[1,2]]".into()).unwrap();
         assert_execution::<ListVal, Vec<Val>>("(tail $0)", &[arg], vec![]);
 
         // test fix
-        let arg = ListVal::val_of_prim(&"[]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[]".into()).unwrap();
         assert_execution("(fix_flip $0 (lam (lam (if (is_empty $0) 0 (+ 1 ($1 (tail $0)))))))", &[arg], 0);
-        let arg = ListVal::val_of_prim(&"[1,2,3,2,1]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[1,2,3,2,1]".into()).unwrap();
         assert_execution("(fix_flip $0 (lam (lam (if (is_empty $0) 0 (+ 1 ($1 (tail $0)))))))", &[arg], 5);
-        let arg = ListVal::val_of_prim(&"[1,2,3,4,5]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[1,2,3,4,5]".into()).unwrap();
         assert_execution("(fix_flip $0 (lam (lam (if (is_empty $0) $0 (cons (+ 1 (head $0)) ($1 (tail $0)))))))", &[arg], vec![2, 3, 4, 5, 6]);
-        let arg = ListVal::val_of_prim(&"[1,2,3,4,5]".into()).unwrap();
+        let arg = dsl.val_of_prim(&"[1,2,3,4,5]".into()).unwrap();
         assert_error::<ListVal, Val>(
             "(fix_flip $0 (lam (lam (if (is_empty $0) $0 (cons (+ 1 (head $0)) ($1 $0))))))",
             &[arg],
