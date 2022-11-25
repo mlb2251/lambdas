@@ -182,30 +182,65 @@ impl TypeSet {
         self.nodes.len() - 1
     }
 
-    /// Normal unification. Does not do the amortizing step of the unionfind (but may mutate
-    /// it still). See unify_cached() for amortized unionfind. Note that this is likely not slower
-    /// than unify_cached() in most cases.
     #[inline(never)]
-    pub fn unify(&mut self, t1: &Type,  t2: &Type) -> UnifyResult {
+    pub fn might_unify(&self, t1: &Type, t2: &Type) -> bool {
         let (node1,t1) = t1.node(self);
         let (node2,t2) = t2.node(self);
 
         match (node1,node2) {
             (TNode::Arrow(_, _), TNode::Term(_, _)) | (TNode::Term(_, _), TNode::Arrow(_, _)) => {
-                return Err(UnifyErr::Production)
+                return false;
             }
             (TNode::Arrow(args1, _), TNode::Arrow(args2, _)) => {
                 if args1.len() != args2.len() {
-                    return Err(UnifyErr::Production)
+                    return false;
+                }
+                if !args1.iter().zip(args2.iter()).all(|(a1,a2)| self.might_unify(&Type::new(a1,t1.shift),&Type::new(a2,t2.shift))) {
+                    return false;
                 }
             }
             (TNode::Term(p1, args1), TNode::Term(p2, args2)) => {
                 if p1 != p2 || args1.len() != args2.len() {
-                    return Err(UnifyErr::Production)
+                    return false;
+                }
+                if !args1.iter().zip(args2.iter()).all(|(a1,a2)| self.might_unify(&Type::new(a1,t1.shift),&Type::new(a2,t2.shift))) {
+                    return false;
                 }
             }
             _ => {}
         }
+        true
+    }
+
+    /// Normal unification. Does not do the amortizing step of the unionfind (but may mutate
+    /// it still). See unify_cached() for amortized unionfind. Note that this is likely not slower
+    /// than unify_cached() in most cases.
+    #[inline(never)]
+    pub fn unify(&mut self, t1: &Type,  t2: &Type) -> UnifyResult {
+
+        if !self.might_unify(t1,t2) {
+            return Err(UnifyErr::Production);
+        }
+
+        let (node1,t1) = t1.node(self);
+        let (node2,t2) = t2.node(self);
+
+        // match (node1,node2) {
+        //     (TNode::Arrow(_, _), TNode::Term(_, _)) | (TNode::Term(_, _), TNode::Arrow(_, _)) => {
+        //         return Err(UnifyErr::Production)
+        //     }
+        //     (TNode::Arrow(args1, _), TNode::Arrow(args2, _)) => {
+        //         if args1.len() != args2.len() {
+        //             return Err(UnifyErr::Production)
+        //         }
+        //     }
+        //     (TNode::Term(p1, args1), TNode::Term(p2, args2)) => {
+        //         if p1 != p2 || args1.len() != args2.len() {
+        //             return Err(UnifyErr::Production)
+        //         }
+        //     }
+        //     _ => {}
+        // }
 
 
         match (node1.clone(),node2.clone()) {
@@ -255,7 +290,7 @@ impl TypeSet {
                     return Err(UnifyErr::Production)
                 }
 
-                for (x,y) in xargs.clone().iter().zip(yargs.clone().iter()) {
+                for (x,y) in xargs.iter().zip(yargs.iter()) {
                     self.unify(&Type::new(x,t1.shift),&Type::new(y,t2.shift))?;
                 }
 
