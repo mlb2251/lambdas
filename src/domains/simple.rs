@@ -21,7 +21,7 @@ pub enum SimpleType {
 
 // aliases of various typed specialized to our SimpleVal
 type Val = crate::eval::Val<SimpleVal>;
-type LazyVal = crate::eval::LazyVal<SimpleVal>;
+type LazyVal = crate::eval::Thunk<SimpleVal>;
 type Evaluator<'a> = crate::eval::Evaluator<'a,SimpleVal>;
 type VResult = crate::eval::VResult<SimpleVal>;
 

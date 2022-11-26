@@ -15,7 +15,7 @@ pub enum ListVal {
 const MAX_FIX_INVOCATIONS: u32 = 20;
 
 type Val = crate::eval::Val<ListVal>;
-type LazyVal = crate::eval::LazyVal<ListVal>;
+type LazyVal = crate::eval::Thunk<ListVal>;
 type Evaluator<'a> = crate::eval::Evaluator<'a,ListVal>;
 type VResult = crate::eval::VResult<ListVal>;
 use ListVal::*;
@@ -231,6 +231,9 @@ fn tail(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
     }
 }
 
+use once_cell::sync::Lazy;
+pub static FIX: Lazy<Val> = Lazy::new(|| PrimFun(CurriedFn::new(Symbol::from("fix"), 2)));
+
 
 /// fix f x = f(fix f)(x)
 /// type i think: ((t0 -> t1) -> t0 -> t1) -> t0 -> t1 
@@ -242,7 +245,8 @@ fn fix(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
     load_args!(handle, args, fn_val: Val, x: Val);
 
     // fix f x = f(fix f)(x)
-    let fixf = PrimFun(CurriedFn::new_with_args(Symbol::from("fix"), 2, vec![LazyVal::new_strict(fn_val.clone())]));
+    // let fixf = PrimFun(CurriedFn::new_with_args(Symbol::from("fix"), 2, vec![LazyVal::new_strict(fn_val.clone())]));
+    let fixf = handle.apply(&FIX, fn_val.clone()).unwrap();
     let res = match handle.apply(&fn_val, fixf) {
         Ok(ffixf) => handle.apply(&ffixf, x),
         Err(err) => Err(format!("Could not apply fixf to f: {}",err))
@@ -256,6 +260,18 @@ fn fix(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
 /// type i think: t0 -> ((t0 -> t1) -> t0 -> t1) -> t1 
 /// This is to match dreamcoder.
 fn fix_flip(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
+    // load_args!(handle, args, x: Val, fn_val: Val);
+
+    // // fn_val = \f \xs ... so  we can look one layer in to
+    // // get the \xs function
+    // let lam_xs = match &fn_val {
+    //     LamClosure(body, _) => *body,
+    //     _ => return Err(format!("fix_flip called on non-lambda"))
+    // };
+
+
+    
+
     args.reverse();
     fix(args, handle)
 }

@@ -8,7 +8,7 @@ use serde::{Serialize, Deserialize};
 
 
 /// env[i] is the value at $i
-pub type Env<D> = Vec<LazyVal<D>>;
+pub type Env<D> = Vec<Thunk<D>>;
 
 /// a value can either be some domain specific value Dom(D) like an Int,
 /// or it can be a primitive function or partially applied primitive function like + or (+ 2)
@@ -22,40 +22,28 @@ pub enum Val<D: Domain> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum LazyValSource<D: Domain> {
-    Lazy(Idx, Env<D>),
-    Strict(Val<D>),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct LazyVal<D: Domain> {
+pub struct Thunk<D: Domain> {
     pub val: Option<Val<D>>,
-    pub source: LazyValSource<D>
+    pub source: Option<(Idx, Env<D>)>
 }
 
-impl<D: Domain> LazyVal<D> {
-    pub fn new_lazy(child: Idx, env: Env<D>) -> Self {
-        LazyVal {
+impl<D: Domain> Thunk<D> {
+    pub fn new(child: Idx, env: Env<D>) -> Self {
+        Thunk {
             val: None,
-            source: LazyValSource::Lazy(child, env)
+            source: Some((child, env))
         }
     }
-    pub fn new_strict(val: Val<D>) -> Self {
-        LazyVal {
-            val: None,
-            source: LazyValSource::Strict(val)
+    pub fn from_val(val: Val<D>) -> Self {
+        Thunk {
+            val: Some(val),
+            source: None
         }
     }
     pub fn eval(&mut self, handle: &Evaluator<D>) -> VResult<D> {
         if self.val.is_none() {
-            match &mut self.source {
-                LazyValSource::Lazy(child, env) => {
-                    self.val = Some(handle.eval_child(*child, env.as_mut_slice())?)
-                }
-                LazyValSource::Strict(val) => {
-                    self.val = Some(val.clone());
-                }
-            }
+            let (child, env) = self.source.as_mut().unwrap();
+            self.val = Some(handle.eval_child(*child, env.as_mut_slice())?)
         }
         Ok(self.val.clone().unwrap())
     }
@@ -74,7 +62,7 @@ pub struct Evaluator<'a, D: Domain> {
 }
 
 impl<'a> Expr<'a> {
-    pub fn eval<D:Domain>(&self, env: &mut [LazyVal<D>], dsl: &DSL<D>, timelimit: Option<Duration>) -> VResult<D> {
+    pub fn eval<D:Domain>(&self, env: &mut [Thunk<D>], dsl: &DSL<D>, timelimit: Option<Duration>) -> VResult<D> {
         self.as_eval(dsl, timelimit).eval_child(self.idx, env)
     }
     pub fn as_eval<D:Domain>(self, dsl: &'a DSL<D>, timelimit: Option<Duration>) -> Evaluator<'a, D> {
@@ -120,7 +108,7 @@ impl<D: Domain> CurriedFn<D> {
     /// Feed one more argument into the function, returning a new CurriedFn if
     /// still not all the arguments have been received. Evaluate the function
     /// if all arguments have been received. Does not mutate the original.
-    pub fn apply(&self, arg: LazyVal<D>, handle: &Evaluator<D>) -> VResult<D> {
+    pub fn apply(&self, arg: Thunk<D>, handle: &Evaluator<D>) -> VResult<D> {
         let mut new_dslfn = self.clone();
         new_dslfn.partial_args.push(arg);
         if new_dslfn.partial_args.len() == new_dslfn.arity {
@@ -159,10 +147,10 @@ impl<D: Domain> FromVal<D> for Val<D> {
 impl<'a, D: Domain> Evaluator<'a,D> {
     /// apply a function (Val) to an argument (Val)
     pub fn apply(&self, f: &Val<D>, x: Val<D>) -> VResult<D> {
-        self.apply_lazy(f, LazyVal::new_strict(x))
+        self.apply_lazy(f, Thunk::from_val(x))
     }
     // apply a function (Val) to an argument (LazyVal)
-    pub fn apply_lazy(&self, f: &Val<D>, x: LazyVal<D>) -> VResult<D> {
+    pub fn apply_lazy(&self, f: &Val<D>, x: Thunk<D>) -> VResult<D> {
         match f {
             Val::PrimFun(f) => f.apply(x, self),
             Val::LamClosure(f, env) => {
@@ -180,7 +168,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
     }
 
     /// eval a subexpression in an environment
-    pub fn eval_child(&self, child: Idx, env: &mut [LazyVal<D>]) -> VResult<D> {
+    pub fn eval_child(&self, child: Idx, env: &mut [Thunk<D>]) -> VResult<D> {
         if let Some((start_time, duration)) = &self.start_and_timelimit {
             if start_time.elapsed() >= *duration {
                 return Err("Eval Timeout".to_string());
@@ -195,7 +183,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
             }
             Node::App(f,x) => {
                 let f_val = self.eval_child(*f, env)?;
-                let x_val = LazyVal::new_lazy(*x, env.to_vec());
+                let x_val = Thunk::new(*x, env.to_vec());
                 self.apply_lazy(&f_val, x_val)?
             }
             Node::Prim(p) => {

@@ -69,7 +69,7 @@ impl Args {
     }
 
     /// iterate over the arguments
-    pub fn iter(&self) -> impl ExactSizeIterator<Item=Idx> + '_ {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item=Idx> + DoubleEndedIterator<Item=Idx> + '_ {
         (0..self.len()).map(move |i| self.get(i).unwrap())
     }
         
@@ -116,6 +116,7 @@ pub struct TypeSet {
     pub max_var: Vec<Option<usize>>,
     pub subst: RefCell<Vec<(usize,Type)>>,
     pub next_var: usize,
+    pub tmp: RefCell<Vec<Type>>,
 }
 
 impl TypeSet {
@@ -128,6 +129,7 @@ impl TypeSet {
             max_var: Default::default(),
             subst: Default::default(),
             next_var: 0,
+            tmp: Default::default(),
         }
     }
 
@@ -219,30 +221,12 @@ impl TypeSet {
     #[inline(never)]
     pub fn unify(&self, t1: &Type,  t2: &Type) -> UnifyResult {
 
-        if !self.might_unify(t1,t2) {
-            return Err(UnifyErr::Production);
-        }
+        // if !self.might_unify(t1,t2) {
+        //     return Err(UnifyErr::Production);
+        // }
 
         let (node1,t1) = t1.node(self);
         let (node2,t2) = t2.node(self);
-
-        // match (node1,node2) {
-        //     (TNode::Arrow(_, _), TNode::Term(_, _)) | (TNode::Term(_, _), TNode::Arrow(_, _)) => {
-        //         return Err(UnifyErr::Production)
-        //     }
-        //     (TNode::Arrow(args1, _), TNode::Arrow(args2, _)) => {
-        //         if args1.len() != args2.len() {
-        //             return Err(UnifyErr::Production)
-        //         }
-        //     }
-        //     (TNode::Term(p1, args1), TNode::Term(p2, args2)) => {
-        //         if p1 != p2 || args1.len() != args2.len() {
-        //             return Err(UnifyErr::Production)
-        //         }
-        //     }
-        //     _ => {}
-        // }
-
 
         match (node1,node2) {
             (TNode::Var(i1), _) => {
@@ -254,7 +238,7 @@ impl TypeSet {
                     }
                 }
                 // *** "occurs" check, which prevents recursive definitions of types. Removing it would allow them.
-                if t2.occurs(i1_shifted, self) { return Err(UnifyErr::Occurs) } // recursive type  e.g. unify(t0, (t0 -> int)) -> false
+                if t2.occurs_nonrecursive(i1_shifted, self) { return Err(UnifyErr::Occurs) } // recursive type  e.g. unify(t0, (t0 -> int)) -> false
 
                 // set the varisble
                 debug_assert!(self.get_var(i1_shifted).is_none());
@@ -264,7 +248,7 @@ impl TypeSet {
             (_, TNode::Var(i2)) => {
                 let i2_shifted = i2 + t2.shift;
                 // *** "occurs" check, which prevents recursive definitions of types. Removing it would allow them.
-                if t1.occurs(i2_shifted, self) { return Err(UnifyErr::Occurs) } // recursive type  e.g. unify(t0, (t0 -> int)) -> false
+                if t1.occurs_nonrecursive(i2_shifted, self) { return Err(UnifyErr::Occurs) } // recursive type  e.g. unify(t0, (t0 -> int)) -> false
 
                 // set the varisble
                 debug_assert!(self.get_var(i2_shifted).is_none());
@@ -333,6 +317,7 @@ impl Type {
     /// get our node and shift.
     /// - If we are not a Var we just return our own node and shift.
     /// - If we are a Var we lookup what it points to in the subst (when our shift is added) and return that, not applying our own shift.
+    /// inline(always) is extremely important here by the way
     #[inline(always)]
     pub fn node<'a>(&self, set: &'a TypeSet) -> (&'a TNode, Type) {
         let tp = self.canonicalize(set);
@@ -346,16 +331,40 @@ impl Type {
         loop {
             if let TNode::Var(i) = &set.nodes[ret.idx] {
                 if let Some(tp) = set.get_var(*i + ret.shift) {
-                    ret = tp.canonicalize(set) // recursively resolve the lookup result using the shift of the lookup result itself
-                } else {
-                    return ret
+                    ret = tp;
+                    // println!("eep");
+                    // set.set_var(*i + ret.shift, tp); // cache it
+                    // assert_eq!(set.get_var(*i + ret.shift), Some(tp));
+                    continue
                 }
-            } else {
-                return ret
             }
+            return ret
         }
     }
 
+    /// true if type var i occurs in this type (post-shifting of this type).
+    #[inline(never)]
+    pub fn occurs_nonrecursive(&self, i: usize, set: &TypeSet) -> bool {
+        let worklist: &mut Vec<Type> = &mut set.tmp.borrow_mut();
+        worklist.clear();
+        worklist.push(*self);
+        while !worklist.is_empty() {
+            let (node, tp) = worklist.pop().unwrap().node(set);
+            match node {
+                TNode::Var(j) => if i == j + tp.shift {
+                    return true
+                },
+                TNode::Term(_, args) => {
+                    worklist.extend(args.iter().rev().map(|x| Type::new(x, tp.shift)))
+                },
+                TNode::Arrow(args, ret_tp) => {
+                    worklist.push(Type::new(*ret_tp,tp.shift));
+                    worklist.extend(args.iter().rev().map(|x| Type::new(x, tp.shift)));
+                },
+            }
+        }
+        false
+    }
     /// true if type var i occurs in this type (post-shifting of this type).
     pub fn occurs(&self, i: usize, set: &TypeSet) -> bool {
         let (node, tp) = self.node(set);
@@ -379,7 +388,7 @@ impl Type {
         }
     }
 
-    pub fn iter_args<'a>(&self, set: &'a TypeSet) -> impl ExactSizeIterator<Item=Type> + 'a {
+    pub fn iter_args<'a>(&self, set: &'a TypeSet) -> impl ExactSizeIterator<Item=Type> + DoubleEndedIterator<Item=Type> + 'a {
         let (node, tp) = self.node(set);
         match node {
             TNode::Arrow(args, _) => args.iter().map(move |arg| Type::new(arg, tp.shift)),
@@ -405,132 +414,3 @@ impl Type {
 }
 
 
-
-
-
-// impl RawTypeRef {
-
-    // /// convenience method for converting to types. probably super slow but useful for debugging
-    // #[inline(never)]
-    // pub fn tp(&self, typeset: &TypeSet) -> SlowType {
-    //     match self.node(typeset) {
-    //         TNode::Var(i) => SlowType::Var(*i),
-    //         TNode::Term(p, args) => {
-    //             SlowType::Term(p.clone(), args.iter().map(|arg| arg.tp(typeset)).collect())
-    //         },
-    //     }
-    // }
-
-    // pub fn show(&self, typeset: &TypeSet) -> String {
-    //     self.tp(typeset).to_string()
-    // }
-
-    // pub fn as_arrow(&self, typeset: &TypeSet) -> Option<(RawTypeRef, RawTypeRef)> {
-    //     if let TNode::Term(name,args) = self.node(typeset) {
-    //         if *name != *ARROW_SYM {
-    //             return None
-    //         }
-    //         let mut it = args.iter();
-    //         let left = it.next().unwrap();
-    //         let right = it.next().unwrap();
-    //         assert!(it.next().is_none(), "malformed arrow");
-    //         Some((*left,*right))
-    //     } else {
-    //          None
-    //     }
-    // }
-
-    // pub fn is_arrow(&self, typeset: &TypeSet) -> bool {
-    //     if let TNode::Term(name,_) = self.node(typeset) {
-    //         return *name == *ARROW_SYM
-    //     }
-    //     false
-    // }
-
-    // /// iterates over all nodes in the term of this type
-    // pub fn iter_arrows<'a>(&self, typeset: &'a TypeSet) -> ArrowIterTypeRef<'a> {
-    //     ArrowIterTypeRef { curr: *self, typeset }
-    // }
-
-    // /// iterates over uncurried argument types of this arrow type
-    // pub fn iter_args<'a>(&self, typeset: &'a TypeSet) -> impl Iterator<Item=RawTypeRef> + 'a {
-    //     self.iter_arrows(typeset).map(|(left,_right)| left)
-    // }
-
-    // /// arity of this arrow type (zero if not an arrow type)
-    // pub fn arity(&self, typeset: &TypeSet) -> usize {
-    //     self.iter_args(typeset).count()
-    // }
-
-    // /// return type of this arrow types *after* uncurrying. For a non arrow type
-    // /// this just returns the type itself.
-    // pub fn return_type(&self, typeset: &TypeSet) -> RawTypeRef {
-    //     self.iter_arrows(typeset).last().map(|(_left,right)| right).unwrap_or(*self)
-    // }
-
-    // /// true if there are no type vars in this type
-    // pub fn is_concrete(&self, typeset: &TypeSet) -> bool {
-    //     match self.node(typeset) {
-    //         TNode::Var(_) => false,
-    //         TNode::Term(_,args) => args.iter().all(|ty| ty.is_concrete(typeset)),
-    //     }
-    // }
-
-// }
-
-
-// impl Type {
-
-
-    // pub fn tp(&self, typeset: &TypeSet) -> SlowType {
-    //     self.raw.tp(typeset)
-    // }
-
-    // pub fn show(&self, typeset: &TypeSet) -> String {
-    //     format!("[shift {}] {}", self.shift, self.raw.tp(typeset))
-    // }
-
-//     pub fn as_arrow(&self, typeset: &TypeSet) -> Option<(Type, Type)> {
-//         let canonical = self.canonicalize(typeset);
-//         canonical.raw.as_arrow(typeset).map(|(r1,r2)| (r1.shift(canonical.shift),r2.shift(canonical.shift)))
-//     }
-
-//     pub fn is_arrow(&self, typeset: &TypeSet) -> bool {
-//         if let TNode::Term(name,_) = self.canonicalize(typeset).raw.node(typeset) {
-//             return *name == *ARROW_SYM
-//         }
-//         false
-//     }
-
-//     /// iterates over all nodes in the term of this type
-//     pub fn iter_arrows<'a>(&'a self, typeset: &'a TypeSet) -> impl Iterator<Item=(Type,Type)> + 'a {
-//         let canonical = self.canonicalize(typeset);
-//         canonical.raw.iter_arrows(typeset).map(move |(r1,r2)| (r1.shift(canonical.shift),r2.shift(canonical.shift)))
-//     }
-
-//     /// iterates over uncurried argument types of this arrow type
-//     pub fn iter_args<'a>(&'a self, typeset: &'a TypeSet) -> impl Iterator<Item=Type> + 'a {
-//         self.iter_arrows(typeset).map(|(left,_right)| left)
-//     }
-
-//     /// arity of this arrow type (zero if not an arrow type)
-//     pub fn arity(&self, typeset: &TypeSet) -> usize {
-//         self.iter_args(typeset).count()
-//     }
-
-//     /// return type of this arrow types *after* uncurrying. For a non arrow type
-//     /// this just returns the type itself.
-//     pub fn return_type(&self, typeset: &TypeSet) -> Type {
-//         self.iter_arrows(typeset).last().map(|(_left,right)| right).unwrap_or(*self)
-//     }
-
-//     /// true if there are no type vars in this type
-//     pub fn is_concrete(&self, typeset: &TypeSet) -> bool {
-//         let canonical = self.canonicalize(typeset);
-//         match canonical.raw.node(typeset) {
-//             TNode::Var(_) => false,
-//             TNode::Term(_, args) => args.iter().map(|r|r.shift(canonical.shift)).all(|ty| ty.is_concrete(typeset)),
-//         }
-//     }
-
-// }

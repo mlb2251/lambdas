@@ -12,6 +12,7 @@ pub type Span = Range<Idx>;
 
 /// Sentinel Idx indicating a hole in the expr
 pub const HOLE: Idx = usize::MAX;
+
 pub static HOLE_SYM: Lazy<Symbol> = Lazy::new(|| Symbol::from("??"));
 
 
