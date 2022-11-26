@@ -1,4 +1,6 @@
 
+use std::cell::RefCell;
+
 use crate::*;
 use once_cell::sync::Lazy;
 
@@ -97,7 +99,6 @@ pub struct Type {
 }
 
 impl Type {
-    #[inline(always)]
     pub fn new(idx: Idx, shift: usize) -> Self {
         Self { idx, shift }
     }
@@ -113,7 +114,7 @@ impl Type {
 pub struct TypeSet {
     pub nodes: Vec<TNode>,
     pub max_var: Vec<Option<usize>>,
-    pub subst: Vec<(usize,Type)>,
+    pub subst: RefCell<Vec<(usize,Type)>>,
     pub next_var: usize,
 }
 
@@ -131,11 +132,11 @@ impl TypeSet {
     }
 
     pub fn save_state(&self) -> (usize,usize) {
-        (self.subst.len(), self.next_var)
+        (self.subst.borrow().len(), self.next_var)
     }
 
     pub fn load_state(&mut self, state: (usize,usize)) {
-        self.subst.truncate(state.0);
+        self.subst.borrow_mut().truncate(state.0);
         self.next_var = state.1;
     }
 
@@ -216,7 +217,7 @@ impl TypeSet {
     /// it still). See unify_cached() for amortized unionfind. Note that this is likely not slower
     /// than unify_cached() in most cases.
     #[inline(never)]
-    pub fn unify(&mut self, t1: &Type,  t2: &Type) -> UnifyResult {
+    pub fn unify(&self, t1: &Type,  t2: &Type) -> UnifyResult {
 
         if !self.might_unify(t1,t2) {
             return Err(UnifyErr::Production);
@@ -243,7 +244,7 @@ impl TypeSet {
         // }
 
 
-        match (node1.clone(),node2.clone()) {
+        match (node1,node2) {
             (TNode::Var(i1), _) => {
                 let i1_shifted = i1 + t1.shift;
                 // check for identical variable (only needs to happen on this match case bc later one cant have a Var for both)
@@ -294,7 +295,7 @@ impl TypeSet {
                     self.unify(&Type::new(x,t1.shift),&Type::new(y,t2.shift))?;
                 }
 
-                self.unify(&Type::new(xret,t1.shift),&Type::new(yret,t2.shift))?;
+                self.unify(&Type::new(*xret,t1.shift),&Type::new(*yret,t2.shift))?;
                 Ok(())
             }
             (TNode::Arrow(_, _), TNode::Term(_, _)) | (TNode::Term(_, _), TNode::Arrow(_, _)) => {
@@ -312,13 +313,13 @@ impl TypeSet {
 
     /// get what a variable is bound to (if anything).
     #[inline(always)]
-    fn get_var(&self, var: usize) -> Option<&Type> {
-        self.subst.iter().rfind(|(i,_)| *i == var).map(|(_,tp)| tp)
+    fn get_var(&self, var: usize) -> Option<Type> {
+        self.subst.borrow().iter().rfind(|(i,_)| *i == var).map(|(_,tp)| tp.clone())
     }
     /// set what a variable is bound to
     #[inline(always)]
-    fn set_var(&mut self, var: usize, ty: Type) {
-        self.subst.push((var,ty));
+    fn set_var(&self, var: usize, ty: Type) {
+        self.subst.borrow_mut().push((var,ty));
     }
 
 
