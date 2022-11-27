@@ -101,17 +101,17 @@ impl Domain for ListVal {
             Production::func("-", "int -> int -> int", sub),
             Production::func(">", "int -> int -> bool", gt),
             Production::func_lazy("if", "bool -> t0 -> t0 -> t0", &[1,2], branch),
-            Production::func("==", "t0 -> t0 -> bool", eq),
-            Production::func("is_empty", "list t0 -> bool", is_empty),
-            Production::func("head", "list t0 -> t0", head),
-            Production::func("tail", "list t0 -> list t0", tail),
+            Production::func("eq?", "t0 -> t0 -> bool", eq),
+            Production::func("empty?", "list t0 -> bool", is_empty),
+            Production::func("car", "list t0 -> t0", car),
+            Production::func("cdr", "list t0 -> list t0", cdr),
             // note in historical origami logs dreamcoder actually uses the signature: t0 -> ((t0 -> t1) -> t0 -> t1) -> t1    fix1
-            // which is why we include fix_flip to use that order of arguments
-            Production::func("fix_flip", "t0 -> ((t0 -> t1) -> t0 -> t1) -> t1", fix_flip),
+            // which is why we include fix1 to use that order of arguments
+            Production::func("fix1", "t0 -> ((t0 -> t1) -> t0 -> t1) -> t1", fix1),
             Production::func("fix", "((t0 -> t1) -> t0 -> t1) -> t0 -> t1", fix),
             Production::val("0", "int", Dom(Int(0))),
             Production::val("1", "int", Dom(Int(1))),
-            Production::val("[]", "list t0", Dom(List(vec![]))),
+            Production::val("empty", "list t0", Dom(List(vec![]))),
         ])
     }
 
@@ -212,19 +212,19 @@ fn is_empty(mut args: Env, _handle: &Evaluator) -> VResult {
     ok(xs.is_empty())
 }
 
-fn head(mut args: Env, _handle: &Evaluator) -> VResult {
+fn car(mut args: Env, _handle: &Evaluator) -> VResult {
     load_args!(args, xs: Vec<Val>);
     if xs.is_empty() {
-        Err(String::from("head called on empty list"))
+        Err(String::from("car called on empty list"))
     } else {
         ok(xs[0].clone())
     }
 }
 
-fn tail(mut args: Env, _handle: &Evaluator) -> VResult {
+fn cdr(mut args: Env, _handle: &Evaluator) -> VResult {
     load_args!(args, xs: Vec<Val>);
     if xs.is_empty() {
-        Err(String::from("tail called on empty list"))
+        Err(String::from("cdr called on empty list"))
     } else {
         ok(xs[1..].to_vec())
     }
@@ -257,7 +257,7 @@ fn fix(mut args: Env, handle: &Evaluator) -> VResult {
 /// fix x f = f(fix f)(x)
 /// type i think: t0 -> ((t0 -> t1) -> t0 -> t1) -> t1 
 /// This is to match dreamcoder.
-fn fix_flip(mut args: Env, handle: &Evaluator) -> VResult {
+fn fix1(mut args: Env, handle: &Evaluator) -> VResult {
     args.reverse();
     fix(args, handle)
 }
@@ -271,8 +271,8 @@ mod tests {
 
         let dsl = ListVal::new_dsl();
 
-        let arg = dsl.val_of_prim(&"[]".into()).unwrap();
-        assert_execution::<ListVal, Vec<Val>>("(if (is_empty $0) $0 (tail $0))", &[arg], vec![]);
+        let arg = dsl.val_of_prim(&"empty".into()).unwrap();
+        assert_execution::<ListVal, Vec<Val>>("(if (empty? $0) $0 (cdr $0))", &[arg], vec![]);
 
         // test cons
         let arg = dsl.val_of_prim(&"[1,2,3]".into()).unwrap();
@@ -293,47 +293,47 @@ mod tests {
         assert_execution::<ListVal, i32>("(if false 5 50)", &[], 50);
 
         // test ==
-        assert_execution::<ListVal, bool>("(== 5 5)", &[], true);
-        assert_execution::<ListVal, bool>("(== 5 50)", &[], false);
+        assert_execution::<ListVal, bool>("(eq? 5 5)", &[], true);
+        assert_execution::<ListVal, bool>("(eq? 5 50)", &[], false);
         let arg1 = dsl.val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
         let arg2 = dsl.val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
-        assert_execution::<ListVal, bool>("(== $0 $1)", &[arg1, arg2], true);
+        assert_execution::<ListVal, bool>("(eq? $0 $1)", &[arg1, arg2], true);
         let arg1 = dsl.val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
         let arg2 = dsl.val_of_prim(&"[[3],[4,5]]".into()).unwrap();
-        assert_execution::<ListVal, bool>("(== $0 $1)", &[arg1, arg2], false);
+        assert_execution::<ListVal, bool>("(eq? $0 $1)", &[arg1, arg2], false);
         let arg1 = dsl.val_of_prim(&"[[]]".into()).unwrap();
         let arg2 = dsl.val_of_prim(&"[]".into()).unwrap();
-        assert_execution::<ListVal, bool>("(== $0 $1)", &[arg1, arg2], false);
+        assert_execution::<ListVal, bool>("(eq? $0 $1)", &[arg1, arg2], false);
         let arg1 = dsl.val_of_prim(&"[]".into()).unwrap();
         let arg2 = dsl.val_of_prim(&"[]".into()).unwrap();
-        assert_execution::<ListVal, bool>("(== $0 $1)", &[arg1, arg2], true);
+        assert_execution::<ListVal, bool>("(eq? $0 $1)", &[arg1, arg2], true);
 
-        // test is_empty
+        // test empty?
         let arg = dsl.val_of_prim(&"[[],[3],[4,5]]".into()).unwrap();
-        assert_execution("(is_empty $0)", &[arg], false);
+        assert_execution("(empty? $0)", &[arg], false);
         let arg = dsl.val_of_prim(&"[]".into()).unwrap();
-        assert_execution("(is_empty $0)", &[arg], true);
+        assert_execution("(empty? $0)", &[arg], true);
 
-        // test head
+        // test car
         let arg = dsl.val_of_prim(&"[[1,2],[3],[4,5]]".into()).unwrap();
-        assert_execution("(head $0)", &[arg], vec![1,2]);
+        assert_execution("(car $0)", &[arg], vec![1,2]);
 
-        // test tail
+        // test cdr
         let arg = dsl.val_of_prim(&"[[1,2],[3],[4,5]]".into()).unwrap();
-        assert_execution("(tail $0)", &[arg], vec![vec![3], vec![4, 5]]);
+        assert_execution("(cdr $0)", &[arg], vec![vec![3], vec![4, 5]]);
         let arg = dsl.val_of_prim(&"[[1,2]]".into()).unwrap();
-        assert_execution::<ListVal, Vec<Val>>("(tail $0)", &[arg], vec![]);
+        assert_execution::<ListVal, Vec<Val>>("(cdr $0)", &[arg], vec![]);
 
         // test fix
         let arg = dsl.val_of_prim(&"[]".into()).unwrap();
-        assert_execution("(fix_flip $0 (lam (lam (if (is_empty $0) 0 (+ 1 ($1 (tail $0)))))))", &[arg], 0);
+        assert_execution("(fix1 $0 (lam (lam (if (empty? $0) 0 (+ 1 ($1 (cdr $0)))))))", &[arg], 0);
         let arg = dsl.val_of_prim(&"[1,2,3,2,1]".into()).unwrap();
-        assert_execution("(fix_flip $0 (lam (lam (if (is_empty $0) 0 (+ 1 ($1 (tail $0)))))))", &[arg], 5);
+        assert_execution("(fix1 $0 (lam (lam (if (empty? $0) 0 (+ 1 ($1 (cdr $0)))))))", &[arg], 5);
         let arg = dsl.val_of_prim(&"[1,2,3,4,5]".into()).unwrap();
-        assert_execution("(fix_flip $0 (lam (lam (if (is_empty $0) $0 (cons (+ 1 (head $0)) ($1 (tail $0)))))))", &[arg], vec![2, 3, 4, 5, 6]);
+        assert_execution("(fix1 $0 (lam (lam (if (empty? $0) $0 (cons (+ 1 (car $0)) ($1 (cdr $0)))))))", &[arg], vec![2, 3, 4, 5, 6]);
         let arg = dsl.val_of_prim(&"[1,2,3,4,5]".into()).unwrap();
         assert_error::<ListVal, Val>(
-            "(fix_flip $0 (lam (lam (if (is_empty $0) $0 (cons (+ 1 (head $0)) ($1 $0))))))",
+            "(fix1 $0 (lam (lam (if (empty? $0) $0 (cons (+ 1 (car $0)) ($1 $0))))))",
             &[arg],
             format!("Exceeded max number of fix invocations. Max was {}", MAX_FIX_INVOCATIONS));
     }
