@@ -3,16 +3,10 @@
 /// this macro is used at the start of a DSL function to load arguments out of their args vec
 #[macro_export]
 macro_rules! load_args {
-    (   $handle: expr,
-        $args:expr,
+    (   $args:expr,
         $($name:ident : $type:ty ),*
     ) => { 
         $(
-            // if let Val::Thunk(idx,env) = self {
-            //     return handle.eval_child(*idx, &env)
-            // } else {
-            //     Ok(self.clone())
-            // }
             let $name:$type = <$type>::from_val($args.pop_front())?;
         )*
     }

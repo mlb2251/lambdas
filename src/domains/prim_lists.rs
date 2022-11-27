@@ -170,31 +170,31 @@ impl Domain for ListVal {
 // *** DSL FUNCTIONS ***
 // *********************
 
-fn cons(mut args: Env, handle: &Evaluator) -> VResult {
-    load_args!(handle, args, x:Val, xs:Vec<Val>); 
+fn cons(mut args: Env, _handle: &Evaluator) -> VResult {
+    load_args!(args, x:Val, xs:Vec<Val>); 
     let mut rxs = xs;
     rxs.insert(0, x);
     // println!("{:?}", rxs);
     ok(rxs)
 }
 
-fn add(mut args: Env, handle: &Evaluator) -> VResult {
-    load_args!(handle, args, x:i32, y:i32); 
+fn add(mut args: Env, _handle: &Evaluator) -> VResult {
+    load_args!(args, x:i32, y:i32); 
     ok(x+y)
 }
 
-fn sub(mut args: Env, handle: &Evaluator) -> VResult {
-    load_args!(handle, args, x:i32, y:i32); 
+fn sub(mut args: Env, _handle: &Evaluator) -> VResult {
+    load_args!(args, x:i32, y:i32); 
     ok(x-y)
 }
 
-fn gt(mut args: Env, handle: &Evaluator) -> VResult {
-    load_args!(handle, args, x:i32, y:i32); 
+fn gt(mut args: Env, _handle: &Evaluator) -> VResult {
+    load_args!(args, x:i32, y:i32); 
     ok(x>y)
 }
 
 fn branch(mut args: Env, handle: &Evaluator) -> VResult {
-    load_args!(handle, args, b: bool, tbranch: Val, fbranch: Val); 
+    load_args!(args, b: bool, tbranch: Val, fbranch: Val); 
     if b { 
         tbranch.unthunk(handle)
     } else { 
@@ -202,18 +202,18 @@ fn branch(mut args: Env, handle: &Evaluator) -> VResult {
     }
 }
 
-fn eq(mut args: Env, handle: &Evaluator) -> VResult {
-    load_args!(handle, args, x:Val, y:Val); 
+fn eq(mut args: Env, _handle: &Evaluator) -> VResult {
+    load_args!(args, x:Val, y:Val); 
     ok(x == y) // since Vals have Eq implemented already in the way that we want
 }
 
-fn is_empty(mut args: Env, handle: &Evaluator) -> VResult {
-    load_args!(handle, args, xs: Vec<Val>);
+fn is_empty(mut args: Env, _handle: &Evaluator) -> VResult {
+    load_args!(args, xs: Vec<Val>);
     ok(xs.is_empty())
 }
 
-fn head(mut args: Env, handle: &Evaluator) -> VResult {
-    load_args!(handle, args, xs: Vec<Val>);
+fn head(mut args: Env, _handle: &Evaluator) -> VResult {
+    load_args!(args, xs: Vec<Val>);
     if xs.is_empty() {
         Err(String::from("head called on empty list"))
     } else {
@@ -221,8 +221,8 @@ fn head(mut args: Env, handle: &Evaluator) -> VResult {
     }
 }
 
-fn tail(mut args: Env, handle: &Evaluator) -> VResult {
-    load_args!(handle, args, xs: Vec<Val>);
+fn tail(mut args: Env, _handle: &Evaluator) -> VResult {
+    load_args!(args, xs: Vec<Val>);
     if xs.is_empty() {
         Err(String::from("tail called on empty list"))
     } else {
@@ -241,7 +241,7 @@ fn fix(mut args: Env, handle: &Evaluator) -> VResult {
     if handle.data.borrow().fix_counter > MAX_FIX_INVOCATIONS {
         return Err(format!("Exceeded max number of fix invocations. Max was {}", MAX_FIX_INVOCATIONS));
     }
-    load_args!(handle, args, fn_val: Val, x: Val);
+    load_args!(args, fn_val: Val, x: Val);
 
     // fix f x = f(fix f)(x)
     // let fixf = PrimFun(CurriedFn::new_with_args(Symbol::from("fix"), 2, vec![Val::new_strict(fn_val.clone())]));
@@ -259,7 +259,7 @@ fn fix(mut args: Env, handle: &Evaluator) -> VResult {
 /// type i think: t0 -> ((t0 -> t1) -> t0 -> t1) -> t1 
 /// This is to match dreamcoder.
 fn fix_flip(mut args: Env, handle: &Evaluator) -> VResult {
-    // load_args!(handle, args, x: Val, fn_val: Val);
+    // load_args!(args, x: Val, fn_val: Val);
 
     // // fn_val = \f \xs ... so  we can look one layer in to
     // // get the \xs function

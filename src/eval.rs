@@ -151,10 +151,10 @@ impl<D: Domain> Val<D> {
         if let Val::Thunk(idx,env) = self {
             return handle.eval_child(*idx, &env)
         }
-        else {
-            Ok(self.clone())
-        }
-        // panic!("unthunk(): not a thunk");
+        // else {
+        //     Ok(self.clone())
+        // }
+        panic!("unthunk(): not a thunk");
     }
     
 }
