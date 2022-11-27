@@ -3,6 +3,15 @@ use std::{fmt::{Display, Formatter, self}};
 use crate::expr::*;
 
 
+/// Takes a string, parses it into an Expr, then returns that string printed back out.
+/// This normalizes the string eg all `lambda` gets converted to `lam` etc.
+pub fn reparse(s: &str) -> String {
+    let mut e = ExprSet::empty(Order::ChildFirst, false, false);
+    let idx = e.parse_extend(s).unwrap();
+    e.get(idx).to_string()
+}
+
+
 /// printing a single node prints the operator
 impl Display for Node {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
