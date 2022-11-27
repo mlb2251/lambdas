@@ -150,7 +150,7 @@ fn map(mut args: Env, handle: &Evaluator) -> VResult {
         // case handle.apply(f: &Val, x: Val) is the way to go. `handle` mainly exists to allow for this, as well
         // as to access handle.data (generic global data) which may be needed for implementation details of certain very complex domains
         // but should largely be avoided.
-        .map(|x| handle.apply(&fn_val, x))  
+        .map(|x| handle.apply(fn_val.clone(), x))  
         // here we just turn a Vec<Result> into a Result<Vec> via .collect()'s casting - a handy trick that collapses
         // all the results together into one (which is an Err if any of them was an Err).
         .collect::<Result<Vec<Val>,_>>()?)

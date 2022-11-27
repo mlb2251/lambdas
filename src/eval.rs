@@ -128,13 +128,12 @@ impl<D: Domain> CurriedFn<D> {
     /// Feed one more argument into the function, returning a new CurriedFn if
     /// still not all the arguments have been received. Evaluate the function
     /// if all arguments have been received. Does not mutate the original.
-    pub fn apply(&self, arg: Val<D>, handle: &Evaluator<D>) -> VResult<D> {
-        let mut new_dslfn = self.clone();
-        new_dslfn.partial_args.push_back(arg);
-        if new_dslfn.partial_args.len() == new_dslfn.arity {
-            handle.dsl.productions.get(&new_dslfn.name).unwrap().fn_ptr.unwrap() (new_dslfn.partial_args, handle)
+    pub fn apply(mut self, arg: Val<D>, handle: &Evaluator<D>) -> VResult<D> {
+        self.partial_args.push_back(arg);
+        if self.partial_args.len() == self.arity {
+            handle.dsl.productions.get(&self.name).unwrap().fn_ptr.unwrap() (self.partial_args, handle)
         } else {
-            Ok(Val::PrimFun(new_dslfn))
+            Ok(Val::PrimFun(self))
         }
     }
 }
@@ -179,13 +178,12 @@ impl<D: Domain> FromVal<D> for Val<D> {
 
 impl<'a, D: Domain> Evaluator<'a,D> {
     // apply a function (Val) to an argument (LazyVal)
-    pub fn apply(&self, f: &Val<D>, x: Val<D>) -> VResult<D> {
+    pub fn apply(&self, f: Val<D>, x: Val<D>) -> VResult<D> {
         match f {
             Val::PrimFun(f) => f.apply(x, self),
-            Val::LamClosure(f, env) => {
-                let mut new_env = env.clone();
-                new_env.push_front(x);
-                self.eval_child(*f, &new_env)
+            Val::LamClosure(f, mut env) => {
+                env.push_front(x);
+                self.eval_child(f, &env)
             }
             // _ => Err(format!("Expected function or closure, got {:?}", f)),
             _ => Err("Expected function or closure".into()),
@@ -223,7 +221,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
                     self.eval_child(*x, env)?
                 };
                 
-                self.apply(&f_val, x_val)?
+                self.apply(f_val, x_val)?
             }
             Node::Prim(p) => {
                 match self.dsl.val_of_prim(p) {

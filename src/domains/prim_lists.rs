@@ -244,9 +244,9 @@ fn fix(mut args: Env, handle: &Evaluator) -> VResult {
     load_args!(args, fn_val: Val, x: Val);
 
     // fix f x = f(fix f)(x)
-    let fixf = handle.apply(&FIX, fn_val.clone()).unwrap();
-    let res = match handle.apply(&fn_val, fixf) {
-        Ok(ffixf) => handle.apply(&ffixf, x),
+    let fixf = handle.apply(FIX.clone(), fn_val.clone()).unwrap();
+    let res = match handle.apply(fn_val, fixf) {
+        Ok(ffixf) => handle.apply(ffixf, x),
         Err(err) => Err(format!("Could not apply fixf to f: {}",err))
     };
     handle.data.borrow_mut().fix_counter -= 1;
