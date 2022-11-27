@@ -124,7 +124,7 @@ macro_rules! load_args {
         $($name:ident : $type:ty ),*
     ) => { 
         use $crate::eval::FromVal;
-        $(let $name:$type = <$type>::from_val($args.remove(0).eval($handle)?)?;)*
+        $(let $name:$type = <$type>::from_val($args.remove(0).unthunk($handle)?)?;)*
     }
 }
 

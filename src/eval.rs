@@ -8,7 +8,7 @@ use serde::{Serialize, Deserialize};
 
 
 /// env[i] is the value at $i
-pub type Env<D> = Vec<Thunk<D>>;
+pub type Env<D> = Vec<Val<D>>;
 
 /// a value can either be some domain specific value Dom(D) like an Int,
 /// or it can be a primitive function or partially applied primitive function like + or (+ 2)
@@ -18,39 +18,13 @@ pub type Env<D> = Vec<Thunk<D>>;
 pub enum Val<D: Domain> {
     Dom(D),
     PrimFun(CurriedFn<D>), // function ptr, arity, any args that have been partially filled in
-    LamClosure(Idx, Env<D>) // body, captured env
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Thunk<D: Domain> {
-    pub val: Option<Val<D>>,
-    pub source: Option<(Idx, Env<D>)>
-}
-
-impl<D: Domain> Thunk<D> {
-    pub fn new(child: Idx, env: Env<D>) -> Self {
-        Thunk {
-            val: None,
-            source: Some((child, env))
-        }
-    }
-    pub fn from_val(val: Val<D>) -> Self {
-        Thunk {
-            val: Some(val),
-            source: None
-        }
-    }
-    pub fn eval(&mut self, handle: &Evaluator<D>) -> VResult<D> {
-        if self.val.is_none() {
-            let (child, env) = self.source.as_mut().unwrap();
-            self.val = Some(handle.eval_child(*child, env.as_mut_slice())?)
-        }
-        Ok(self.val.clone().unwrap())
-    }
+    LamClosure(Idx, Env<D>), // body, captured env
+    Thunk(Idx, Env<D>)
 }
 
 pub type VResult<D> = Result<Val<D>,VError>;
 pub type VError = String;
+
 
 
 #[derive(Debug)]
@@ -62,7 +36,7 @@ pub struct Evaluator<'a, D: Domain> {
 }
 
 impl<'a> Expr<'a> {
-    pub fn eval<D:Domain>(&self, env: &mut [Thunk<D>], dsl: &DSL<D>, timelimit: Option<Duration>) -> VResult<D> {
+    pub fn eval<D:Domain>(&self, env: &[Val<D>], dsl: &DSL<D>, timelimit: Option<Duration>) -> VResult<D> {
         self.as_eval(dsl, timelimit).eval_child(self.idx, env)
     }
     pub fn as_eval<D:Domain>(self, dsl: &'a DSL<D>, timelimit: Option<Duration>) -> Evaluator<'a, D> {
@@ -108,7 +82,7 @@ impl<D: Domain> CurriedFn<D> {
     /// Feed one more argument into the function, returning a new CurriedFn if
     /// still not all the arguments have been received. Evaluate the function
     /// if all arguments have been received. Does not mutate the original.
-    pub fn apply(&self, arg: Thunk<D>, handle: &Evaluator<D>) -> VResult<D> {
+    pub fn apply(&self, arg: Val<D>, handle: &Evaluator<D>) -> VResult<D> {
         let mut new_dslfn = self.clone();
         new_dslfn.partial_args.push(arg);
         if new_dslfn.partial_args.len() == new_dslfn.arity {
@@ -126,7 +100,17 @@ impl<D: Domain> Val<D> {
             _ => Err("Val::unwrap_dom: not a domain value".into())
         }
     }
+    #[inline(always)]
+    pub fn unthunk(self, handle: &Evaluator<D>) -> VResult<D> {
+        if let Val::Thunk(idx,env) = self {
+            handle.eval_child(idx, env.as_slice())
+        } else {
+            Ok(self)
+        }
+    }
 }
+
+
 impl<D: Domain> From<D> for Val<D> {
     fn from(d: D) -> Self {
         Val::Dom(d)
@@ -145,12 +129,8 @@ impl<D: Domain> FromVal<D> for Val<D> {
 
 
 impl<'a, D: Domain> Evaluator<'a,D> {
-    /// apply a function (Val) to an argument (Val)
-    pub fn apply(&self, f: &Val<D>, x: Val<D>) -> VResult<D> {
-        self.apply_lazy(f, Thunk::from_val(x))
-    }
     // apply a function (Val) to an argument (LazyVal)
-    pub fn apply_lazy(&self, f: &Val<D>, x: Thunk<D>) -> VResult<D> {
+    pub fn apply(&self, f: &Val<D>, x: Val<D>) -> VResult<D> {
         match f {
             Val::PrimFun(f) => f.apply(x, self),
             Val::LamClosure(f, env) => {
@@ -168,7 +148,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
     }
 
     /// eval a subexpression in an environment
-    pub fn eval_child(&self, child: Idx, env: &mut [Thunk<D>]) -> VResult<D> {
+    pub fn eval_child(&self, child: Idx, env: &[Val<D>]) -> VResult<D> {
         if let Some((start_time, duration)) = &self.start_and_timelimit {
             if start_time.elapsed() >= *duration {
                 return Err("Eval Timeout".to_string());
@@ -176,15 +156,15 @@ impl<'a, D: Domain> Evaluator<'a,D> {
         }
         let val = match self.expr.get_node(child) {
             Node::Var(i) => {
-                env[*i as usize].eval(self)?
+                env[*i as usize].clone()
             }
             Node::IVar(_) => {
                 panic!("attempting to execute a #i ivar")
             }
             Node::App(f,x) => {
                 let f_val = self.eval_child(*f, env)?;
-                let x_val = Thunk::new(*x, env.to_vec());
-                self.apply_lazy(&f_val, x_val)?
+                let x_val = Val::Thunk(*x, env.to_vec());
+                self.apply(&f_val, x_val)?
             }
             Node::Prim(p) => {
                 match self.dsl.val_of_prim(p) {

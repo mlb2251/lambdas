@@ -15,7 +15,6 @@ pub enum ListVal {
 const MAX_FIX_INVOCATIONS: u32 = 20;
 
 type Val = crate::eval::Val<ListVal>;
-type LazyVal = crate::eval::Thunk<ListVal>;
 type Evaluator<'a> = crate::eval::Evaluator<'a,ListVal>;
 type VResult = crate::eval::VResult<ListVal>;
 use ListVal::*;
@@ -170,7 +169,7 @@ impl Domain for ListVal {
 // *** DSL FUNCTIONS ***
 // *********************
 
-fn cons(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
+fn cons(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
     load_args!(handle, args, x:Val, xs:Vec<Val>); 
     let mut rxs = xs;
     rxs.insert(0, x);
@@ -178,42 +177,42 @@ fn cons(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
     ok(rxs)
 }
 
-fn add(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
+fn add(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
     load_args!(handle, args, x:i32, y:i32); 
     ok(x+y)
 }
 
-fn sub(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
+fn sub(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
     load_args!(handle, args, x:i32, y:i32); 
     ok(x-y)
 }
 
-fn gt(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
+fn gt(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
     load_args!(handle, args, x:i32, y:i32); 
     ok(x>y)
 }
 
-fn branch(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
+fn branch(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
     load_args!(handle, args, b: bool);
-    load_args_lazy!(args, tbranch: LazyVal, fbranch: LazyVal); 
+    load_args_lazy!(args, tbranch: Val, fbranch: Val); 
     if b { 
-        tbranch.eval(handle)
+        tbranch.unthunk(handle)
     } else { 
-        fbranch.eval(handle)
+        fbranch.unthunk(handle)
     }
 }
 
-fn eq(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
+fn eq(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
     load_args!(handle, args, x:Val, y:Val); 
     ok(x == y) // since Vals have Eq implemented already in the way that we want
 }
 
-fn is_empty(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
+fn is_empty(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
     load_args!(handle, args, xs: Vec<Val>);
     ok(xs.is_empty())
 }
 
-fn head(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
+fn head(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
     load_args!(handle, args, xs: Vec<Val>);
     if xs.is_empty() {
         Err(String::from("head called on empty list"))
@@ -222,7 +221,7 @@ fn head(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
     }
 }
 
-fn tail(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
+fn tail(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
     load_args!(handle, args, xs: Vec<Val>);
     if xs.is_empty() {
         Err(String::from("tail called on empty list"))
@@ -237,7 +236,7 @@ pub static FIX: Lazy<Val> = Lazy::new(|| PrimFun(CurriedFn::new(Symbol::from("fi
 
 /// fix f x = f(fix f)(x)
 /// type i think: ((t0 -> t1) -> t0 -> t1) -> t0 -> t1 
-fn fix(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
+fn fix(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
     handle.data.borrow_mut().fix_counter += 1;
     if handle.data.borrow().fix_counter > MAX_FIX_INVOCATIONS {
         return Err(format!("Exceeded max number of fix invocations. Max was {}", MAX_FIX_INVOCATIONS));
@@ -245,7 +244,7 @@ fn fix(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
     load_args!(handle, args, fn_val: Val, x: Val);
 
     // fix f x = f(fix f)(x)
-    // let fixf = PrimFun(CurriedFn::new_with_args(Symbol::from("fix"), 2, vec![LazyVal::new_strict(fn_val.clone())]));
+    // let fixf = PrimFun(CurriedFn::new_with_args(Symbol::from("fix"), 2, vec![Val::new_strict(fn_val.clone())]));
     let fixf = handle.apply(&FIX, fn_val.clone()).unwrap();
     let res = match handle.apply(&fn_val, fixf) {
         Ok(ffixf) => handle.apply(&ffixf, x),
@@ -259,7 +258,7 @@ fn fix(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
 /// fix x f = f(fix f)(x)
 /// type i think: t0 -> ((t0 -> t1) -> t0 -> t1) -> t1 
 /// This is to match dreamcoder.
-fn fix_flip(mut args: Vec<LazyVal>, handle: &Evaluator) -> VResult {
+fn fix_flip(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
     // load_args!(handle, args, x: Val, fn_val: Val);
 
     // // fn_val = \f \xs ... so  we can look one layer in to
