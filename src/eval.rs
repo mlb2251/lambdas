@@ -7,8 +7,54 @@ use std::time::{Instant,Duration};
 use serde::{Serialize, Deserialize};
 
 
-/// env[i] is the value at $i
-pub type Env<D> = Vec<Val<D>>;
+// /// env[i] is the value at $i
+// pub type Env<D> = Vec<Val<D>>;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Env<D: Domain> {
+    pub env: Vec<Val<D>>,
+}
+
+impl<D: Domain> Env<D> {
+    pub fn empty() -> Self {
+        Env { env: vec![] }
+    }
+    pub fn push_back(&mut self, v: Val<D>) {
+        self.env.push(v);
+    }
+    pub fn push_front(&mut self, v: Val<D>) {
+        self.env.insert(0,v);
+    }
+    pub fn pop_back(&mut self) -> Val<D> {
+        self.env.pop().unwrap()
+    }
+    pub fn pop_front(&mut self) -> Val<D> {
+        self.env.remove(0)
+    }
+    pub fn get(&self, i: usize) -> &Val<D> {
+        &self.env[i]
+    }
+    pub fn len(&self) -> usize {
+        self.env.len()
+    }
+    pub fn reverse(&mut self) {
+        self.env.reverse();
+    }
+    pub fn is_empty(&self) -> bool {
+        self.env.is_empty()
+    }
+}
+
+impl<D: Domain> From<Vec<Val<D>>> for Env<D> {
+    fn from(env: Vec<Val<D>>) -> Self {
+        Env { env }
+    }
+}
+impl<D: Domain> From<&[Val<D>]> for Env<D> {
+    fn from(env: &[Val<D>]) -> Self {
+        Env { env: env.to_vec() }
+    }
+}
 
 /// a value can either be some domain specific value Dom(D) like an Int,
 /// or it can be a primitive function or partially applied primitive function like + or (+ 2)
@@ -36,7 +82,7 @@ pub struct Evaluator<'a, D: Domain> {
 }
 
 impl<'a> Expr<'a> {
-    pub fn eval<D:Domain>(&self, env: &[Val<D>], dsl: &DSL<D>, timelimit: Option<Duration>) -> VResult<D> {
+    pub fn eval<D:Domain>(&self, env: &Env<D>, dsl: &DSL<D>, timelimit: Option<Duration>) -> VResult<D> {
         self.as_eval(dsl, timelimit).eval_child(self.idx, env)
     }
     pub fn as_eval<D:Domain>(self, dsl: &'a DSL<D>, timelimit: Option<Duration>) -> Evaluator<'a, D> {
@@ -69,7 +115,7 @@ impl<D: Domain> CurriedFn<D> {
         Self {
             name,
             arity,
-            partial_args: Vec::new(),
+            partial_args: Env::empty(),
         }
     }
     pub fn new_with_args(name: Symbol, arity: usize, partial_args: Env<D>) -> Self {
@@ -84,7 +130,7 @@ impl<D: Domain> CurriedFn<D> {
     /// if all arguments have been received. Does not mutate the original.
     pub fn apply(&self, arg: Val<D>, handle: &Evaluator<D>) -> VResult<D> {
         let mut new_dslfn = self.clone();
-        new_dslfn.partial_args.push(arg);
+        new_dslfn.partial_args.push_back(arg);
         if new_dslfn.partial_args.len() == new_dslfn.arity {
             handle.dsl.productions.get(&new_dslfn.name).unwrap().fn_ptr.unwrap() (new_dslfn.partial_args, handle)
         } else {
@@ -101,13 +147,16 @@ impl<D: Domain> Val<D> {
         }
     }
     #[inline(always)]
-    pub fn unthunk(self, handle: &Evaluator<D>) -> VResult<D> {
+    pub fn unthunk(&self, handle: &Evaluator<D>) -> VResult<D> {
         if let Val::Thunk(idx,env) = self {
-            handle.eval_child(idx, env.as_slice())
-        } else {
-            Ok(self)
+            return handle.eval_child(*idx, &env)
         }
+        else {
+            Ok(self.clone())
+        }
+        // panic!("unthunk(): not a thunk");
     }
+    
 }
 
 
@@ -134,9 +183,9 @@ impl<'a, D: Domain> Evaluator<'a,D> {
         match f {
             Val::PrimFun(f) => f.apply(x, self),
             Val::LamClosure(f, env) => {
-                let mut new_env = vec![x];
-                new_env.extend(env.iter().cloned());
-                self.eval_child(*f, &mut new_env)
+                let mut new_env = env.clone();
+                new_env.push_front(x);
+                self.eval_child(*f, &new_env)
             }
             // _ => Err(format!("Expected function or closure, got {:?}", f)),
             _ => Err("Expected function or closure".into()),
@@ -148,7 +197,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
     }
 
     /// eval a subexpression in an environment
-    pub fn eval_child(&self, child: Idx, env: &[Val<D>]) -> VResult<D> {
+    pub fn eval_child(&self, child: Idx, env: &Env<D>) -> VResult<D> {
         if let Some((start_time, duration)) = &self.start_and_timelimit {
             if start_time.elapsed() >= *duration {
                 return Err("Eval Timeout".to_string());
@@ -156,14 +205,14 @@ impl<'a, D: Domain> Evaluator<'a,D> {
         }
         let val = match self.expr.get_node(child) {
             Node::Var(i) => {
-                env[*i as usize].clone()
+                env.get(*i as usize).clone()
             }
             Node::IVar(_) => {
                 panic!("attempting to execute a #i ivar")
             }
             Node::App(f,x) => {
                 let f_val = self.eval_child(*f, env)?;
-                let x_val = Val::Thunk(*x, env.to_vec());
+                let x_val = Val::Thunk(*x, env.clone());
                 self.apply(&f_val, x_val)?
             }
             Node::Prim(p) => {
@@ -173,7 +222,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
                 }
             }
             Node::Lam(b) => {
-                Val::LamClosure(*b, env.to_vec())
+                Val::LamClosure(*b, env.clone())
             }
         };
         Ok(val)

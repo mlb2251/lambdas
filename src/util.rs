@@ -19,7 +19,8 @@ where T: FromVal<D> + Debug + PartialEq,
 {
     let mut set = ExprSet::empty(Order::ChildFirst, false, false);
     let e = set.parse_extend(expr).unwrap();
-    let res = set.get(e).eval(args, &D::new_dsl(), None).unwrap();
+    let args = Env::from(args);
+    let res = set.get(e).eval(&args, &D::new_dsl(), None).unwrap();
     assert_eq_val(&res,expected);
 }
 
@@ -28,7 +29,8 @@ where T: FromVal<D> + Debug + PartialEq
 {
     let mut set = ExprSet::empty(Order::ChildFirst, false, false);
     let e = set.parse_extend(expr).unwrap();
-    let res = set.get(e).eval(args, &D::new_dsl(), None);
+    let args = Env::from(args);
+    let res = set.get(e).eval(&args, &D::new_dsl(), None);
     assert!(res.is_err());
     assert_eq!(expected_error_msg, res.err().unwrap());
 }

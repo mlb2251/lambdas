@@ -124,9 +124,43 @@ macro_rules! load_args {
         $($name:ident : $type:ty ),*
     ) => { 
         use $crate::eval::FromVal;
-        $(let $name:$type = <$type>::from_val($args.remove(0).unthunk($handle)?)?;)*
+        $(
+            // if let Val::Thunk(idx,env) = self {
+            //     return handle.eval_child(*idx, &env)
+            // } else {
+            //     Ok(self.clone())
+            // }
+            let $name:$type = <$type>::from_val($args.pop_front().unthunk($handle)?)?;
+        )*
     }
 }
+
+/// this macro is used at the start of a DSL function to load arguments out of their args vec
+#[macro_export]
+macro_rules! load_arg {
+    (   
+        $handle: expr,
+        $args:expr,
+        $i:expr
+    ) => {{ 
+        let val = match load_arg_lazy!($args, $i) {
+            Val::Thunk(idx,env) => &$handle.eval_child(*idx, &env)?,
+            val => val
+        };        
+        FromVal::from_val(val)?
+    }}
+}
+
+#[macro_export]
+macro_rules! load_arg_lazy {
+    (   
+        $args:expr,
+        $i:expr
+    ) => {{ 
+        $args.get($i)
+    }}
+}
+
 
 /// this macro is used at the start of a DSL function to load arguments out of their args vec
 #[macro_export]
@@ -134,6 +168,6 @@ macro_rules! load_args_lazy {
     (   $args:expr,
         $($name:ident : $type:ty ),*
     ) => { 
-        $(let mut $name:$type = $args.remove(0).into();)*
+        $(let mut $name:$type = $args.pop_front().into();)*
     }
 }

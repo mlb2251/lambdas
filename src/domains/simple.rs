@@ -23,6 +23,7 @@ pub enum SimpleType {
 type Val = crate::eval::Val<SimpleVal>;
 type Evaluator<'a> = crate::eval::Evaluator<'a,SimpleVal>;
 type VResult = crate::eval::VResult<SimpleVal>;
+type Env = crate::eval::Env<SimpleVal>;
 
 // to more concisely refer to the variants
 use SimpleVal::*;
@@ -124,7 +125,7 @@ impl Domain for SimpleVal {
 // *** DSL FUNCTIONS ***
 // See comments throughout pointing out useful aspects
 
-fn add(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
+fn add(mut args: Env, handle: &Evaluator) -> VResult {
     // load_args! macro is used to extract the arguments from the args vector. This uses
     // .into() to convert the Val into the appropriate type. For example an int list, which is written
     // as  Dom(List(Vec<Dom(Int)>)), can be .into()'d into a Vec<i32> or a Vec<Val> or a Val.
@@ -137,12 +138,12 @@ fn add(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
     ok(x+y)
 }
 
-fn mul(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
+fn mul(mut args: Env, handle: &Evaluator) -> VResult {
     load_args!(handle, args, x:i32, y:i32);
     ok(x*y)
 }
 
-fn map(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
+fn map(mut args: Env, handle: &Evaluator) -> VResult {
     load_args!(handle, args, fn_val: Val, xs: Vec<Val>);
     ok(xs.into_iter()
         // sometimes you might want to apply a value that you know is a function to something else. In that
@@ -155,7 +156,7 @@ fn map(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
         .collect::<Result<Vec<Val>,_>>()?)
 }
 
-fn sum(mut args: Vec<Val>, handle: &Evaluator) -> VResult {
+fn sum(mut args: Env, handle: &Evaluator) -> VResult {
     load_args!(handle, args, xs: Vec<i32>);
     ok(xs.iter().sum::<i32>())
 }
