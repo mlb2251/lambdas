@@ -212,7 +212,17 @@ impl<'a, D: Domain> Evaluator<'a,D> {
             }
             Node::App(f,x) => {
                 let f_val = self.eval_child(*f, env)?;
-                let x_val = Val::Thunk(*x, env.clone());
+
+                let x_val = if let Val::PrimFun(func) = &f_val {
+                    if self.dsl.productions.get(&func.name).unwrap().lazy_args.contains(&func.partial_args.len()) {
+                        Val::Thunk(*x, env.clone())
+                    } else {
+                        self.eval_child(*x, env)?
+                    }
+                } else {
+                    self.eval_child(*x, env)?
+                };
+                
                 self.apply(&f_val, x_val)?
             }
             Node::Prim(p) => {

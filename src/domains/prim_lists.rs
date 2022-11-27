@@ -100,7 +100,7 @@ impl Domain for ListVal {
             Production::func("+", "int -> int -> int", add),
             Production::func("-", "int -> int -> int", sub),
             Production::func(">", "int -> int -> bool", gt),
-            Production::func("if", "bool -> t0 -> t0 -> t0", branch),
+            Production::func_lazy("if", "bool -> t0 -> t0 -> t0", &[1,2], branch),
             Production::func("==", "t0 -> t0 -> bool", eq),
             Production::func("is_empty", "list t0 -> bool", is_empty),
             Production::func("head", "list t0 -> t0", head),
@@ -194,8 +194,7 @@ fn gt(mut args: Env, handle: &Evaluator) -> VResult {
 }
 
 fn branch(mut args: Env, handle: &Evaluator) -> VResult {
-    load_args!(handle, args, b: bool);
-    load_args_lazy!(args, tbranch: Val, fbranch: Val); 
+    load_args!(handle, args, b: bool, tbranch: Val, fbranch: Val); 
     if b { 
         tbranch.unthunk(handle)
     } else { 

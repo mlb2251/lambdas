@@ -1,6 +1,6 @@
 use crate::*;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 use std::hash::Hash;
 
@@ -13,6 +13,7 @@ pub struct Production<D: Domain> {
     pub val: Val<D>,
     pub tp: SlowType,
     pub arity: usize,
+    pub lazy_args: HashSet<usize>,
     pub fn_ptr: Option<DSLFn<D>>,
 }
 
@@ -36,7 +37,10 @@ impl<D: Domain> Production<D> {
     }
 
     pub fn func(name: &str, tp: &str, fn_ptr: DSLFn<D>) -> Self {
-        Production::func_raw(name.into(), tp.parse().unwrap(), fn_ptr)
+        Production::func_raw(name.into(), tp.parse().unwrap(), Default::default(), fn_ptr)
+    }
+    pub fn func_lazy(name: &str, tp: &str, lazy_args: &[usize], fn_ptr: DSLFn<D>) -> Self {
+        Production::func_raw(name.into(), tp.parse().unwrap(), lazy_args.iter().copied().collect(), fn_ptr)
     }
 
     pub fn val_raw(name: Symbol, tp: SlowType, val: Val<D>) -> Self {
@@ -46,17 +50,19 @@ impl<D: Domain> Production<D> {
             val,
             tp,
             arity: 0,
+            lazy_args: Default::default(),
             fn_ptr: None,
         }
     }
 
-    pub fn func_raw(name: Symbol, tp: SlowType, fn_ptr: DSLFn<D>) -> Self {
+    pub fn func_raw(name: Symbol, tp: SlowType, lazy_args: HashSet<usize>, fn_ptr: DSLFn<D>) -> Self {
         let arity = tp.arity();
         Production {
             name: name.clone(),
             val: PrimFun(CurriedFn::<D>::new(name, arity)),
             tp,
             arity,
+            lazy_args,
             fn_ptr: Some(fn_ptr),
         }
     }
