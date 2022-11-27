@@ -244,7 +244,6 @@ fn fix(mut args: Env, handle: &Evaluator) -> VResult {
     load_args!(args, fn_val: Val, x: Val);
 
     // fix f x = f(fix f)(x)
-    // let fixf = PrimFun(CurriedFn::new_with_args(Symbol::from("fix"), 2, vec![Val::new_strict(fn_val.clone())]));
     let fixf = handle.apply(&FIX, fn_val.clone()).unwrap();
     let res = match handle.apply(&fn_val, fixf) {
         Ok(ffixf) => handle.apply(&ffixf, x),
@@ -259,18 +258,6 @@ fn fix(mut args: Env, handle: &Evaluator) -> VResult {
 /// type i think: t0 -> ((t0 -> t1) -> t0 -> t1) -> t1 
 /// This is to match dreamcoder.
 fn fix_flip(mut args: Env, handle: &Evaluator) -> VResult {
-    // load_args!(args, x: Val, fn_val: Val);
-
-    // // fn_val = \f \xs ... so  we can look one layer in to
-    // // get the \xs function
-    // let lam_xs = match &fn_val {
-    //     LamClosure(body, _) => *body,
-    //     _ => return Err(format!("fix_flip called on non-lambda"))
-    // };
-
-
-    
-
     args.reverse();
     fix(args, handle)
 }

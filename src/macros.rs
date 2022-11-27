@@ -7,7 +7,7 @@ macro_rules! load_args {
         $($name:ident : $type:ty ),*
     ) => { 
         $(
-            let $name:$type = <$type>::from_val($args.pop_front())?;
+            let $name:$type = FromVal::from_val($args.pop_front())?;
         )*
     }
 }
