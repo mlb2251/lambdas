@@ -144,7 +144,7 @@ impl TypeSet {
 
     /// Instantiate an index into a shifted type using all fresh type variables
     /// and making the shift high enough
-    #[inline(never)]
+    // #[inline(always)]
     pub fn instantiate(&mut self, idx: Idx) -> Type {
         let shift = self.next_var;
         if let Some(max_var) = self.max_var[idx] {
@@ -185,7 +185,8 @@ impl TypeSet {
         self.nodes.len() - 1
     }
 
-    #[inline(never)]
+    // #[inline(never)]
+    /// this doesnt actually seem to save time
     pub fn might_unify(&self, t1: &Type, t2: &Type) -> bool {
         let (node1,t1) = t1.node(self);
         let (node2,t2) = t2.node(self);
@@ -218,7 +219,7 @@ impl TypeSet {
     /// Normal unification. Does not do the amortizing step of the unionfind (but may mutate
     /// it still). See unify_cached() for amortized unionfind. Note that this is likely not slower
     /// than unify_cached() in most cases.
-    #[inline(never)]
+    // #[inline(never)]
     pub fn unify(&self, t1: &Type,  t2: &Type) -> UnifyResult {
 
         // if !self.might_unify(t1,t2) {
@@ -343,7 +344,7 @@ impl Type {
     }
 
     /// true if type var i occurs in this type (post-shifting of this type).
-    #[inline(never)]
+    // #[inline(never)]
     pub fn occurs_nonrecursive(&self, i: usize, set: &TypeSet) -> bool {
         let worklist: &mut Vec<Type> = &mut set.tmp.borrow_mut();
         worklist.clear();
