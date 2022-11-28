@@ -100,7 +100,7 @@ impl<D: Domain> DSL<D> {
 
 
 /// The key trait that defines a domain
-pub trait Domain: Clone + Debug + PartialEq + Eq + Hash {
+pub trait Domain: Clone + Debug + PartialEq + Eq + Hash + Send + Sync {
     type Data: Debug + Default;
 
     fn val_of_prim_fallback(p: &Symbol) -> Option<Val<Self>>;
