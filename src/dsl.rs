@@ -37,10 +37,12 @@ impl<D: Domain> Production<D> {
     }
 
     pub fn func(name: &str, tp: &str, fn_ptr: DSLFn<D>) -> Self {
-        Production::func_raw(name.into(), tp.parse().unwrap(), Default::default(), fn_ptr)
+        Production::func_custom(name.into(), tp, Default::default(), None, fn_ptr)
     }
-    pub fn func_lazy(name: &str, tp: &str, lazy_args: &[usize], fn_ptr: DSLFn<D>) -> Self {
-        Production::func_raw(name.into(), tp.parse().unwrap(), lazy_args.iter().copied().collect(), fn_ptr)
+
+    pub fn func_custom(name: &str, tp: &str, lazy_args: Option<&[usize]>, eval_at_arity: Option<usize>, fn_ptr: DSLFn<D>) -> Self {
+        let lazy_args = lazy_args.map(|args|args.iter().copied().collect()).unwrap_or_default();
+        Production::func_raw(name.into(), tp.parse().unwrap(), lazy_args, eval_at_arity, fn_ptr)
     }
 
     pub fn val_raw(name: Symbol, tp: SlowType, val: Val<D>) -> Self {
@@ -55,7 +57,7 @@ impl<D: Domain> Production<D> {
         }
     }
 
-    pub fn func_raw(name: Symbol, tp: SlowType, lazy_args: HashSet<usize>, fn_ptr: DSLFn<D>) -> Self {
+    pub fn func_raw(name: Symbol, tp: SlowType, lazy_args: HashSet<usize>, eval_at_arity: Option<usize>, fn_ptr: DSLFn<D>) -> Self {
         let arity = tp.arity();
         Production {
             name: name.clone(),

@@ -100,7 +100,7 @@ impl Domain for ListVal {
             Production::func("+", "int -> int -> int", add),
             Production::func("-", "int -> int -> int", sub),
             Production::func(">", "int -> int -> bool", gt),
-            Production::func_lazy("if", "bool -> t0 -> t0 -> t0", &[1,2], branch),
+            Production::func_custom("if", "bool -> t0 -> t0 -> t0", Some(&[1,2]), None, branch),
             Production::func("eq?", "t0 -> t0 -> bool", eq),
             Production::func("empty?", "list t0 -> bool", is_empty),
             Production::func("car", "list t0 -> t0", car),
@@ -251,6 +251,7 @@ fn fix(mut args: Env, handle: &Evaluator) -> VResult {
     };
     handle.data.borrow_mut().fix_counter -= 1;
     res
+    // handle.apply(fn_val, fixf)
 }
 
 
