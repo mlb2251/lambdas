@@ -69,12 +69,12 @@ impl Analysis for ExprCost {
     fn new(e: Expr, analyzed: &AnalyzedExpr<Self>) -> Self::Item {
         match e.node() {
             Node::IVar(_) => analyzed.shared.cost_ivar,
-            Node::Var(_) => analyzed.shared.cost_var,
+            Node::Var(_, _) => analyzed.shared.cost_var,
             Node::Prim(p) => *analyzed.shared.cost_prim.get(p).unwrap_or(&analyzed.shared.cost_prim_default),
             Node::App(f, x) => {
                 analyzed.shared.cost_app + analyzed.nodes[*f] + analyzed.nodes[*x] 
             }
-            Node::Lam(b) => {
+            Node::Lam(b, _) => {
                 analyzed.shared.cost_lam + analyzed.nodes[*b]
             }
         }
@@ -86,12 +86,12 @@ impl Analysis for &ExprCost {
     fn new(e: Expr, analyzed: &AnalyzedExpr<Self>) -> Self::Item {
         match e.node() {
             Node::IVar(_) => analyzed.shared.cost_ivar,
-            Node::Var(_) => analyzed.shared.cost_var,
+            Node::Var(_, _) => analyzed.shared.cost_var,
             Node::Prim(p) => *analyzed.shared.cost_prim.get(p).unwrap_or(&analyzed.shared.cost_prim_default),
             Node::App(f, x) => {
                 analyzed.shared.cost_app + analyzed.nodes[*f] + analyzed.nodes[*x] 
             }
-            Node::Lam(b) => {
+            Node::Lam(b, _) => {
                 analyzed.shared.cost_lam + analyzed.nodes[*b]
             }
         }
@@ -106,12 +106,12 @@ impl Analysis for DepthAnalysis {
     fn new(e: Expr, analyzed: &AnalyzedExpr<Self>) -> Self::Item {
         match e.node() {
             Node::IVar(_) => 1,
-            Node::Var(_) => 1,
+            Node::Var(_, _) => 1,
             Node::Prim(_) => 1,
             Node::App(f, x) => {
                 1 + std::cmp::max(analyzed.nodes[*f], analyzed.nodes[*x])
             }
-            Node::Lam(b) => {
+            Node::Lam(b, _) => {
                 1 + analyzed.nodes[*b]
             }
         }
@@ -126,7 +126,7 @@ impl Analysis for FreeVarAnalysis {
         let mut free: FxHashSet<i32> = Default::default();
         match e.node() {
             Node::IVar(_) => {},
-            Node::Var(i) => {
+            Node::Var(i, _) => {
                 free.insert(*i);
             },
             Node::Prim(_) => {},
@@ -134,7 +134,7 @@ impl Analysis for FreeVarAnalysis {
                 free.extend(analyzed[*f].iter());
                 free.extend(analyzed[*x].iter());
             }
-            Node::Lam(b) => {
+            Node::Lam(b, _) => {
                 free.extend(analyzed[*b].iter()
                     .filter(|i| **i > 0)    
                     .map(|i| i - 1)
@@ -155,13 +155,13 @@ impl Analysis for IVarAnalysis {
             Node::IVar(i) => {
                 free.insert(*i);
             },
-            Node::Var(_) => {},
+            Node::Var(_, _) => {},
             Node::Prim(_) => {},
             Node::App(f, x) => {
                 free.extend(analyzed[*f].iter());
                 free.extend(analyzed[*x].iter());
             }
-            Node::Lam(b) => {
+            Node::Lam(b, _) => {
                 free.extend(analyzed[*b].iter());
             }
         }

@@ -1,6 +1,6 @@
 [package]
 name = "lambdas"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Matthew Bowers <mlbowers@mit.edu>", "Theo X. Olausson <theoxo@mit.edu>"]
 edition = "2018"
 license = "MIT"

@@ -202,7 +202,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
             }
         }
         let val = match self.expr.get_node(child) {
-            Node::Var(i) => {
+            Node::Var(i, _) => {
                 env.get(*i as usize).clone()
             }
             Node::IVar(_) => {
@@ -229,7 +229,7 @@ impl<'a, D: Domain> Evaluator<'a,D> {
                     None => panic!("Prim `{}` not found",p),
                 }
             }
-            Node::Lam(b) => {
+            Node::Lam(b, _) => {
                 Val::LamClosure(*b, env.clone())
             }
         };
