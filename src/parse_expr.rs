@@ -142,8 +142,6 @@ impl ExprSet {
             // println!("item_str: {}", item_str);
             s = &s[..start];
 
-            println!("item_str: {}", item_str);
-
             if item_str == "lam" || item_str == "lambda"
                 || item_str.starts_with("lam_") || item_str.starts_with("lambda_") {
                 // split on _ and parse the number
@@ -152,6 +150,9 @@ impl ExprSet {
                     let mut split = item_str.split('_');
                     split.next().unwrap(); // strip "lam"
                     tag = split.next().unwrap().parse::<i32>().map_err(|e|e.to_string())?;
+                    if tag < 0 {
+                        return Err(format!("ExprSet parse error: lambda tag must be non-negative: {}", s_init))
+                    }
                 }
                 // println!("remainder: {}",s);
                 let mut eof = false;
@@ -193,6 +194,9 @@ impl ExprSet {
                         let mut split = rest.split('_');
                         rest = split.next().unwrap();
                         tag = split.next().unwrap().parse::<i32>().map_err(|e|e.to_string())?;
+                        if tag < 0 {
+                            return Err(format!("ExprSet parse error: variable tag must be non-negative: {}", s_init))
+                        }
                     }
                     Node::Var(rest.parse::<i32>().map_err(|e|e.to_string())?, tag)
                 } else if let Some(rest) = item_str.strip_prefix('#') {
