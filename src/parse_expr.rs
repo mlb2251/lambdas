@@ -16,10 +16,22 @@ pub fn reparse(s: &str) -> String {
 impl Display for Node {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Var(i) => write!(f, "${}", i),
+            Self::Var(i, tag) => {
+                write!(f, "${}", i)?;
+                if *tag != -1 {
+                    write!(f, "_{}", tag)?;
+                }
+                Ok(())
+            },
             Self::Prim(p) => write!(f,"{}",p),
             Self::App(_,_) => write!(f,"app"),
-            Self::Lam(_) => write!(f,"lam"),
+            Self::Lam(_, tag) => {
+                write!(f,"lam")?;
+                if *tag != -1 {
+                    write!(f, "_{}", tag)?;
+                }
+                Ok(())
+            },
             Self::IVar(i) => write!(f,"#{}",i),
         }
     }
@@ -33,7 +45,7 @@ impl<'a> Display for Expr<'a> {
             }
 
             match e.node() {
-                Node::Var(_) | Node::IVar(_) | Node::Prim(_) => write!(f,"{}", e.node()),
+                Node::Var(_, _) | Node::IVar(_) | Node::Prim(_) => write!(f,"{}", e.node()),
                 Node::App(fun,x) => {
                     // if you are the left side of an application, and you are an application, you dont need parens
                     if !left_of_app { write!(f,"(")? }
@@ -42,8 +54,12 @@ impl<'a> Display for Expr<'a> {
                     fmt_local(e.get(*x), false, f)?;
                     if !left_of_app { write!(f,")") } else { Ok(()) }
                 },
-                Node::Lam(b) => {
-                    write!(f,"(lam ")?;
+                Node::Lam(b, tag) => {
+                    write!(f,"(lam")?;
+                    if *tag != -1 {
+                        write!(f, "_{}", tag)?;
+                    }
+                    write!(f," ")?;
                     fmt_local(e.get(*b), false, f)?;
                     write!(f,")")
                 }
@@ -126,7 +142,18 @@ impl ExprSet {
             // println!("item_str: {}", item_str);
             s = &s[..start];
 
-            if item_str == "lam" || item_str == "lambda" {
+            if item_str == "lam" || item_str == "lambda"
+                || item_str.starts_with("lam_") || item_str.starts_with("lambda_") {
+                // split on _ and parse the number
+                let mut tag = -1;
+                if item_str.contains('_') {
+                    let mut split = item_str.split('_');
+                    split.next().unwrap(); // strip "lam"
+                    tag = split.next().unwrap().parse::<i32>().map_err(|e|e.to_string())?;
+                    if tag < 0 {
+                        return Err(format!("ExprSet parse error: lambda tag must be non-negative: {}", s_init))
+                    }
+                }
                 // println!("remainder: {}",s);
                 let mut eof = false;
                 if let Some(c) = s.chars().last()  {
@@ -143,7 +170,7 @@ impl ExprSet {
                     return Err(format!("ExprSet parse error: `lam` must always be applied to exactly one argument, like `(lam (foo bar))`: {}",s_init))
                 }
                 let b: Idx = items.pop().unwrap();
-                items.push(self.add(Node::Lam(b)));
+                items.push(self.add(Node::Lam(b, tag)));
                 // println!("added lam");
                 if eof {
                     if items.len() != 1 {
@@ -160,8 +187,18 @@ impl ExprSet {
             }
 
             let node = {
-                if let Some(rest) = item_str.strip_prefix('$') {
-                    Node::Var(rest.parse::<i32>().map_err(|e|e.to_string())?)
+                if let Some(mut rest) = item_str.strip_prefix('$') {
+                    // check if item_str has a _ in it
+                    let mut tag = -1;
+                    if rest.contains('_') {
+                        let mut split = rest.split('_');
+                        rest = split.next().unwrap();
+                        tag = split.next().unwrap().parse::<i32>().map_err(|e|e.to_string())?;
+                        if tag < 0 {
+                            return Err(format!("ExprSet parse error: variable tag must be non-negative: {}", s_init))
+                        }
+                    }
+                    Node::Var(rest.parse::<i32>().map_err(|e|e.to_string())?, tag)
                 } else if let Some(rest) = item_str.strip_prefix('#') {
                     Node::IVar(rest.parse::<i32>().map_err(|e|e.to_string())?)
                 } else {
@@ -232,9 +269,27 @@ mod tests {
         assert_parse(set, "(lam (+ #0 b))", "(lam (+ #0 b))");
 
         let e = set.parse_extend("$3").unwrap();
-        assert_eq!(set.get(e).node(), &Node::Var(3));
+        assert_eq!(set.get(e).node(), &Node::Var(3, -1));
         let e = set.parse_extend("#3").unwrap();
         assert_eq!(set.get(e).node(), &Node::IVar(3));
+
+        let e = set.parse_extend("$3_1").unwrap();
+        assert_eq!(set.get(e).node(), &Node::Var(3, 1));
+
+        let e = set.parse_extend("$23_145").unwrap();
+        assert_eq!(set.get(e).node(), &Node::Var(23, 145));
+
+        let e = set.parse_extend("$23_0").unwrap();
+        assert_eq!(set.get(e).node(), &Node::Var(23, 0));
+
+        let e = set.parse_extend("(lam_123 (+ $0_1 $1_1))").unwrap();
+        let (_, tag) = match set.get(e).node() {
+            Node::Lam(body, tag) => (*body, *tag),
+            x => panic!("expected lam, got {}", x)
+        };
+        assert_eq!(tag, 123);
+
+        assert_parse(set, "(lam_123 (+ $0_1 $1_1))", "(lam_123 (+ $0_1 $1_1))");
 
         assert_parse(set, "(fix1 $0 (lam (lam (if (empty? $0) $0 (cons (+ 1 (car $0)) ($1 (cdr $0)))))))", "(fix1 $0 (lam (lam (if (empty? $0) $0 (cons (+ 1 (car $0)) ($1 (cdr $0)))))))")
 

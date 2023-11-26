@@ -8,6 +8,7 @@ use rustc_hash::FxHashMap;
 use crate::*;
 
 pub type Idx = usize;
+pub type Tag = i32;
 pub type Span = Range<Idx>;
 
 /// Sentinel Idx indicating a hole in the expr
@@ -22,10 +23,10 @@ pub static HOLE_SYM: Lazy<Symbol> = Lazy::new(|| Symbol::from("??"));
 pub enum Node where
 {
     Prim(Symbol), // primitive (eg functions, constants, all nonvariable leaf nodes)
-    Var(i32), // db index ($i)
+    Var(i32, Tag), // db index ($i), tag
     IVar(i32), // abstraction ("invention") variable
     App(Idx,Idx), // f, x
-    Lam(Idx), // body
+    Lam(Idx, Tag), // body, tag
 }
 
 /// An untyped lambda calculus expression or set of expressions
@@ -81,10 +82,10 @@ impl ExprOwned {
         self.set.iter().map(|i|
             match self.set.get(i).node() {
                 Node::IVar(_) => cost_fn.cost_ivar,
-                Node::Var(_) => cost_fn.cost_var,
+                Node::Var(_, _) => cost_fn.cost_var,
                 Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
                 Node::App(_, _) => cost_fn.cost_app,
-                Node::Lam(_) => cost_fn.cost_lam,
+                Node::Lam(_, _) => cost_fn.cost_lam,
             }).sum::<i32>()
     }
     pub fn depth(&self) -> usize {
@@ -144,9 +145,9 @@ impl ExprSet {
         // push on a new span if we're tracking spans
         if let Some(spans) = &mut self.spans {
             let span = match node {
-                Node::Var(_) | Node::Prim(_) | Node::IVar(_) => idx .. idx+1,
+                Node::Var(_, _) | Node::Prim(_) | Node::IVar(_) => idx .. idx+1,
                 Node::App(f, x) => min(min(spans[f].start,spans[x].start),idx) .. max(max(spans[f].end,spans[x].end),idx+1),
-                Node::Lam(b) => min(spans[b].start,idx) .. max(spans[b].end,idx+1)
+                Node::Lam(b, _) => min(spans[b].start,idx) .. max(spans[b].end,idx+1)
             };
             spans.push(span);
         }
@@ -212,9 +213,9 @@ impl<'a> Expr<'a> {
     }
     pub fn children(&self) -> impl Iterator<Item=Idx> {
         match self.node() {
-            Node::Var(_) | Node::Prim(_) | Node::IVar(_) => vec![].into_iter(),
+            Node::Var(_, _) | Node::Prim(_) | Node::IVar(_) => vec![].into_iter(),
             Node::App(f, x) => vec![*f, *x].into_iter(),
-            Node::Lam(b) => vec![*b].into_iter()
+            Node::Lam(b, _) => vec![*b].into_iter()
         }
     }
     /// assuming this is an App, get the subexpression to the left
@@ -237,7 +238,7 @@ impl<'a> Expr<'a> {
     #[inline(always)]
     pub fn body(&self) -> Self {
         match self.node() {
-            Node::Lam(b) => self.get(*b),
+            Node::Lam(b, _) => self.get(*b),
             _ => panic!("get_body called on non-Lam")
         }
     }
@@ -256,10 +257,10 @@ impl<'a> Expr<'a> {
         let res = self.iter_span().map(|i|
             match self.set.get(i).node() {
                 Node::IVar(_) => cost_fn.cost_ivar,
-                Node::Var(_) => cost_fn.cost_var,
+                Node::Var(_, _) => cost_fn.cost_var,
                 Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
                 Node::App(_, _) => cost_fn.cost_app,
-                Node::Lam(_) => cost_fn.cost_lam,
+                Node::Lam(_, _) => cost_fn.cost_lam,
             }).sum::<i32>();
         debug_assert_eq!(res, self.cost_rec(cost_fn));
         res
@@ -271,12 +272,12 @@ impl<'a> Expr<'a> {
     pub fn cost_rec(&self, cost_fn: &ExprCost) -> i32 {
         match self.node() {
             Node::IVar(_) => cost_fn.cost_ivar,
-            Node::Var(_) => cost_fn.cost_var,
+            Node::Var(_, _) => cost_fn.cost_var,
             Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
             Node::App(f, x) => {
                 cost_fn.cost_app + self.get(*f).cost_rec(cost_fn) + self.get(*x).cost_rec(cost_fn)
             }
-            Node::Lam(b) => {
+            Node::Lam(b, _) => {
                 cost_fn.cost_lam + self.get(*b).cost_rec(cost_fn)
             }
         }
@@ -290,9 +291,9 @@ impl<'a> Expr<'a> {
         other_set.nodes.extend(self.iter_span().map(|i| {
             let node = self.get_node(i);
             match node {
-                Node::Prim(_) | Node::Var(_) | Node::IVar(_) => node.clone(),
+                Node::Prim(_) | Node::Var(_, _) | Node::IVar(_) => node.clone(),
                 Node::App(f, x) => Node::App((*f as i32 + shift) as usize, (*x as i32 + shift) as usize),
-                Node::Lam(b) => Node::Lam((*b as i32 + shift) as usize),
+                Node::Lam(b, tag) => Node::Lam((*b as i32 + shift) as usize, *tag),
             }
         }));
 
@@ -332,7 +333,7 @@ impl<'a> Expr<'a> {
         assert_eq!(self.set.order, other_set.order);
         fn helper(e: Expr, other_set: &mut ExprSet) -> Idx {
             match e.node() {
-                Node::Prim(_) | Node::Var(_) | Node::IVar(_) => {
+                Node::Prim(_) | Node::Var(_, _) | Node::IVar(_) => {
                     other_set.add(e.node().clone())
                 }
                 Node::App(f, x) => {
@@ -340,9 +341,9 @@ impl<'a> Expr<'a> {
                     let x = helper(e.get(*x), other_set);
                     other_set.add(Node::App(f, x))
                 }
-                Node::Lam(b) => {
+                Node::Lam(b, tag) => {
                     let b = helper(e.get(*b), other_set);
-                    other_set.add(Node::Lam(b))
+                    other_set.add(Node::Lam(b, *tag))
                 }
             }
         }
@@ -353,13 +354,13 @@ impl<'a> Expr<'a> {
     /// return true if the node at this expr obeys the defined node order
     pub fn node_order_safe(&self) -> bool {
         match self.node() {
-            Node::Prim(_) | Node::Var(_) | Node::IVar(_) => true,
+            Node::Prim(_) | Node::Var(_, _) | Node::IVar(_) => true,
             Node::App(f, x) => match self.set.order {
                 Order::ChildFirst => (*f == HOLE || *f < self.idx) && (*x == HOLE || *x < self.idx),
                 Order::ParentFirst => (*f == HOLE || *f > self.idx) && (*x == HOLE || *x > self.idx),
                 Order::Any => *f != self.idx && *x != self.idx,
             },
-            Node::Lam(b) => match self.set.order {
+            Node::Lam(b, _) => match self.set.order {
                 Order::ChildFirst => *b == HOLE || *b < self.idx,
                 Order::ParentFirst => *b == HOLE || *b > self.idx,
                 Order::Any => *b != self.idx,
@@ -410,7 +411,7 @@ impl<'a> ExprMut<'a> {
                     *y = idx;    
                 }
             },
-            Node::Lam(b) => {
+            Node::Lam(b, _) => {
                 assert_eq!(*b, HOLE, "invalid expand() on non-hole");
                 *b = idx
             }
@@ -427,7 +428,7 @@ impl<'a> ExprMut<'a> {
                 assert_eq!(*y, HOLE, "invalid expand_right() on non-hole");
                 *y = idx;
             },
-            Node::Lam(b) => {
+            Node::Lam(b, _) => {
                 assert_eq!(*b, HOLE, "invalid expand_right() on non-hole");
                 *b = idx
             }
@@ -446,7 +447,7 @@ impl<'a> ExprMut<'a> {
                     *x = HOLE;    
                 }
             },
-            Node::Lam(b) => {
+            Node::Lam(b, _) => {
                 *b = HOLE
             }
             _ => panic!("invalid unexpand() on non-lam non-app: {:?}", self.node())
@@ -463,7 +464,7 @@ impl<'a> ExprMut<'a> {
                     *y = HOLE;
                 }
             },
-            Node::Lam(b) => {
+            Node::Lam(b, _) => {
                 *b = HOLE
             }
             _ => panic!("invalid unexpand_right() on non-lam non-app: {:?}", self.node())
@@ -482,16 +483,16 @@ impl<'a> ExprMut<'a> {
 
         match self.node().clone() {
             Node::Prim(_) => self.idx,
-            Node::Var(i) => if i >= init_depth { self.set.add(Node::Var(i+incr_by)) } else { self.idx },
+            Node::Var(i, tag) => if i >= init_depth { self.set.add(Node::Var(i+incr_by, tag)) } else { self.idx },
             Node::IVar(_) => self.idx,
             Node::App(f, x) => {
                 let f = self.get(f).shift(incr_by, init_depth, analyzed_free_vars);
                 let x = self.get(x).shift(incr_by, init_depth, analyzed_free_vars);
                 self.set.add(Node::App(f, x))
             },
-            Node::Lam(b) => {
+            Node::Lam(b, tag) => {
                 let b = self.get(b).shift(incr_by, init_depth+1, analyzed_free_vars);
-                self.set.add(Node::Lam(b))
+                self.set.add(Node::Lam(b, tag))
             },
         }
     }
@@ -510,10 +511,10 @@ impl<'a> ExprMut<'a> {
 //             iters.first
 //         }
 //         match self.curr.node() {
-//             Node::Var(_) => Some(self.curr),
+//             Node::Var(_, _) => Some(self.curr),
 //             Node::Prim(_) => Some(self.curr),
 //             Node::App(f, x) => todo!(),
-//             Node::Lam(b) => ExprIter { curr: Expr { self.curr.set,  } },
+//             Node::Lam(b, tag) => ExprIter { curr: Expr { self.curr.set,  } },
 //             Node::IVar(_) => Some(self.curr),
 //         }
 //     }
@@ -598,7 +599,7 @@ mod tests {
         for i in set.get(e1).iter_span() {
             let bonus = set.len() as i32;
             match set.get_mut(i).node() {
-                Node::Var(i) => {*i += bonus},
+                Node::Var(i, _) => {*i += bonus},
                 _ => {}
             }
         }
@@ -622,7 +623,7 @@ mod tests {
         let app1 = e.add(Node::App(HOLE,HOLE));
         let app2 = e.add(Node::App(HOLE,HOLE));
         let plus = e.add(Node::Prim("+".into()));
-        let lam = e.add(Node::Lam(HOLE));
+        let lam = e.add(Node::Lam(HOLE, -1));
         e.get_mut(app1).expand(app2);
         e.get_mut(app2).expand(plus);
         e.get_mut(app1).expand(lam);

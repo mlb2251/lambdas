@@ -405,7 +405,7 @@ impl<'a> Expr<'a> {
                 ctx.unify(&f_tp, &SlowType::arrow(x_tp, return_tp.clone()))?;
                 Ok(return_tp.apply(ctx))
             },
-            Node::Lam(b) => {
+            Node::Lam(b, _) => {
                 let var_tp = ctx.fresh_type_var();
                 // todo maybe optimize by making this a vecdeque for faster insert/remove at the zero index
                 env.push_front(var_tp.clone());
@@ -413,7 +413,7 @@ impl<'a> Expr<'a> {
                 env.pop_front();
                 Ok(SlowType::arrow(var_tp, body_tp).apply(ctx))
             },
-            Node::Var(i) => {
+            Node::Var(i, _) => {
                 if (*i as usize) >= env.len() {
                     panic!("unbound variable encountered during infer(): ${}", i)
                 }
