@@ -229,7 +229,8 @@ impl<'a, D: Domain> Evaluator<'a,D> {
                     None => panic!("Prim `{}` not found",p),
                 }
             }
-            Node::Lam(b, _) => {
+            Node::Lam(b, _, _) => {
+                // tODO
                 Val::LamClosure(*b, env.clone())
             }
         };
