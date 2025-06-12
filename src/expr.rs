@@ -541,7 +541,7 @@ impl ExprCost {
 
     pub fn compute_cost_new_prim(&self) -> i32 {
         // this is used to compute the cost of a new symbol, e.g., the name of a new invention.
-        return self.cost_prim_default;
+        self.cost_prim_default
     }
 
     pub fn compute_cost_prim_lower_bound(&self) -> i32 {
@@ -549,7 +549,7 @@ impl ExprCost {
     }
 
     pub fn new(cost_lam: i32, cost_app: i32, cost_var: i32, cost_ivar: i32, cost_prim: HashMap<Symbol,i32>, cost_prim_default: i32) -> ExprCost {
-        let cost_prim_lower_bound = cost_prim.values().min().unwrap_or(&cost_prim_default).clone();
+        let cost_prim_lower_bound = *cost_prim.values().min().unwrap_or(&cost_prim_default);
         ExprCost {
             cost_lam,
             cost_app,
