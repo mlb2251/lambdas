@@ -538,6 +538,11 @@ impl ExprCost {
         *self.cost_prim.get(prim).unwrap_or(&self.cost_prim_default)
     }
 
+    pub fn compute_cost_new_prim(&self) -> i32 {
+        // this is used to compute the cost of a new symbol, e.g., the name of a new invention.
+        return self.cost_prim_default;
+    }
+
     pub fn dreamcoder() -> ExprCost {
         ExprCost {
             cost_lam: 1,
