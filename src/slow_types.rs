@@ -39,12 +39,6 @@ impl SlowType {
         }
     }
 
-    /// iterates over all (left_type,right_type) pairs for the chain of arrows
-    /// starting here. Empty iterator if this is not an arrow.
-    // pub fn iter_nodes(&self) -> impl Iterator<Item=&Type> {
-    //     return NodeIter { curr: self }
-    // }
-
     /// iterates over all nodes in the term of this type
     pub fn iter_arrows(&self) -> ArrowIter {
         ArrowIter { curr: self }

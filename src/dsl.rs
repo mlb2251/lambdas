@@ -37,7 +37,7 @@ impl<D: Domain> Production<D> {
     }
 
     pub fn func(name: &str, tp: &str, fn_ptr: DSLFn<D>) -> Self {
-        Production::func_custom(name.into(), tp, Default::default(), fn_ptr)
+        Production::func_custom(name, tp, Default::default(), fn_ptr)
     }
 
     pub fn func_custom(name: &str, tp: &str, lazy_args: Option<&[usize]>, fn_ptr: DSLFn<D>) -> Self {

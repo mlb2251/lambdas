@@ -48,6 +48,10 @@ impl Args {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// get the ith argument
     pub fn get(&self, i: usize) -> Option<Idx> {
         match self {
@@ -299,7 +303,7 @@ impl TypeSet {
     /// get what a variable is bound to (if anything).
     #[inline(always)]
     fn get_var(&self, var: usize) -> Option<Type> {
-        self.subst.borrow().iter().rfind(|(i,_)| *i == var).map(|(_,tp)| tp.clone())
+        self.subst.borrow().iter().rfind(|(i,_)| *i == var).map(|(_,tp)| *tp)
     }
     /// set what a variable is bound to
     #[inline(always)]
@@ -318,6 +322,7 @@ impl Type {
     /// get our node and shift.
     /// - If we are not a Var we just return our own node and shift.
     /// - If we are a Var we lookup what it points to in the subst (when our shift is added) and return that, not applying our own shift.
+    ///
     /// inline(always) is extremely important here by the way
     #[inline(always)]
     pub fn node<'a>(&self, set: &'a TypeSet) -> (&'a TNode, Type) {
@@ -407,10 +412,7 @@ impl Type {
 
     pub fn is_arrow(&self, set: &TypeSet) -> bool {
         let (node, _) = self.node(set);
-        match node {
-            TNode::Arrow(_, _) => true,
-            _ => false,
-        }
+        matches!(node, TNode::Arrow(_, _))
     }
 }
 

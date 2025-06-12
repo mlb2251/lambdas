@@ -63,7 +63,7 @@ fn parse_aux(mut s: &str) -> Result<(SlowType, &str), String> {
         // no closeparen/openparen so must be a new token. Parse forward until hitting a space or end-of-string
 
 
-        let (item, s_new) = s.split_at(s.find(|c| c == ' ' || c == ')').unwrap_or(s.len()));
+        let (item, s_new) = s.split_at(s.find([' ', ')']).unwrap_or(s.len()));
         s = s_new;
 
         // check if it's a var like t0 t23 etc
