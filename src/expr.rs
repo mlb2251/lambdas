@@ -531,7 +531,6 @@ pub struct ExprCost {
     pub cost_ivar: i32,
     cost_prim: HashMap<Symbol,i32>,
     cost_prim_default: i32,
-    cost_prim_lower_bound: i32,
 }
 
 impl ExprCost {
@@ -544,52 +543,35 @@ impl ExprCost {
         self.cost_prim_default
     }
 
-    pub fn compute_cost_prim_lower_bound(&self) -> i32 {
-        self.cost_prim_lower_bound
-    }
-
-    pub fn new(cost_lam: i32, cost_app: i32, cost_var: i32, cost_ivar: i32, cost_prim: HashMap<Symbol,i32>, cost_prim_default: i32) -> ExprCost {
-        let cost_prim_lower_bound = *cost_prim.values().min().unwrap_or(&cost_prim_default);
+    pub fn dreamcoder() -> ExprCost {
         ExprCost {
-            cost_lam,
-            cost_app,
-            cost_var,
-            cost_ivar,
-            cost_prim,
-            cost_prim_default,
-            cost_prim_lower_bound,
+            cost_lam: 1,
+            cost_app: 1,
+            cost_var: 100,
+            cost_ivar: 100,
+            cost_prim: HashMap::new(),
+            cost_prim_default: 100,
         }
     }
-
-    pub fn dreamcoder() -> ExprCost {
-        ExprCost::new(
-            1,
-             1,
-             100,
-             100,
-             HashMap::new(),
-             100,
-        )
-    }
     pub fn num_terminals() -> ExprCost {
-        ExprCost::new(
-            0,
-            0,
-            1,
-            1,
-            HashMap::new(),
-            1,
-        )
+        ExprCost {
+            cost_lam: 0,
+            cost_app: 0,
+            cost_var: 1,
+            cost_ivar: 1,
+            cost_prim: HashMap::new(),
+            cost_prim_default: 1,
+        }
     }
     pub fn num_nodes() -> ExprCost {
-        ExprCost::new(
-            1,
-            1,
-            1,
-            1,
-            HashMap::new(),
-            1,
-        )
+        ExprCost {
+            cost_lam: 1,
+            cost_app: 1,
+            cost_var: 1,
+            cost_ivar: 1,
+            cost_prim: HashMap::new(),
+            cost_prim_default: 1,
+        }
     }
 }
 
