@@ -70,7 +70,7 @@ impl Analysis for ExprCost {
         match e.node() {
             Node::IVar(_) => analyzed.shared.cost_ivar,
             Node::Var(_, _) => analyzed.shared.cost_var,
-            Node::Prim(p) => *analyzed.shared.cost_prim.get(p).unwrap_or(&analyzed.shared.cost_prim_default),
+            Node::Prim(p) => analyzed.shared.compute_cost_prim(p),
             Node::App(f, x) => {
                 analyzed.shared.cost_app + analyzed.nodes[*f] + analyzed.nodes[*x] 
             }
@@ -87,7 +87,7 @@ impl Analysis for &ExprCost {
         match e.node() {
             Node::IVar(_) => analyzed.shared.cost_ivar,
             Node::Var(_, _) => analyzed.shared.cost_var,
-            Node::Prim(p) => *analyzed.shared.cost_prim.get(p).unwrap_or(&analyzed.shared.cost_prim_default),
+            Node::Prim(p) => analyzed.shared.compute_cost_prim(p),
             Node::App(f, x) => {
                 analyzed.shared.cost_app + analyzed.nodes[*f] + analyzed.nodes[*x] 
             }

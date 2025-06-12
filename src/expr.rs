@@ -83,7 +83,7 @@ impl ExprOwned {
             match self.set.get(i).node() {
                 Node::IVar(_) => cost_fn.cost_ivar,
                 Node::Var(_, _) => cost_fn.cost_var,
-                Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
+                Node::Prim(p) => cost_fn.compute_cost_prim(p),
                 Node::App(_, _) => cost_fn.cost_app,
                 Node::Lam(_, _) => cost_fn.cost_lam,
             }).sum::<i32>()
@@ -258,7 +258,7 @@ impl<'a> Expr<'a> {
             match self.set.get(i).node() {
                 Node::IVar(_) => cost_fn.cost_ivar,
                 Node::Var(_, _) => cost_fn.cost_var,
-                Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
+                Node::Prim(p) => cost_fn.compute_cost_prim(p),
                 Node::App(_, _) => cost_fn.cost_app,
                 Node::Lam(_, _) => cost_fn.cost_lam,
             }).sum::<i32>();
@@ -273,7 +273,7 @@ impl<'a> Expr<'a> {
         match self.node() {
             Node::IVar(_) => cost_fn.cost_ivar,
             Node::Var(_, _) => cost_fn.cost_var,
-            Node::Prim(p) => *cost_fn.cost_prim.get(p).unwrap_or(&cost_fn.cost_prim_default),
+            Node::Prim(p) => cost_fn.compute_cost_prim(p),
             Node::App(f, x) => {
                 cost_fn.cost_app + self.get(*f).cost_rec(cost_fn) + self.get(*x).cost_rec(cost_fn)
             }
@@ -529,11 +529,15 @@ pub struct ExprCost {
     pub cost_app: i32,
     pub cost_var: i32,
     pub cost_ivar: i32,
-    pub cost_prim: HashMap<Symbol,i32>,
-    pub cost_prim_default: i32,
+    cost_prim: HashMap<Symbol,i32>,
+    cost_prim_default: i32,
 }
 
 impl ExprCost {
+    pub fn compute_cost_prim(&self, prim: &Symbol) -> i32 {
+        *self.cost_prim.get(prim).unwrap_or(&self.cost_prim_default)
+    }
+
     pub fn dreamcoder() -> ExprCost {
         ExprCost {
             cost_lam: 1,
