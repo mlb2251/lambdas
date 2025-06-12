@@ -148,7 +148,7 @@ impl<D: Domain> Val<D> {
     #[inline(always)]
     pub fn unthunk(&self, handle: &Evaluator<D>) -> VResult<D> {
         if let Val::Thunk(idx,env) = self {
-            return handle.eval_child(*idx, &env)
+            return handle.eval_child(*idx, env)
         }
         // else {
         //     Ok(self.clone())

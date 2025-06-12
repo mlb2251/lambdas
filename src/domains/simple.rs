@@ -1,5 +1,4 @@
 /// This is an example domain, heavily commented to explain how to implement your own!
-
 use crate::*;
 
 /// A simple domain with ints and polymorphic lists (allows nested lists).

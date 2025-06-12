@@ -625,10 +625,7 @@ mod tests {
         // here
         for i in set.get(e1).iter_span() {
             let bonus = set.len() as i32;
-            match set.get_mut(i).node() {
-                Node::Var(i, _) => {*i += bonus},
-                _ => {}
-            }
+            if let Node::Var(i, _) = set.get_mut(i).node() {*i += bonus}
         }
 
         assert_eq!(set.get(e3).to_string(), "((lam $8) (+ 4 4))".to_string());
