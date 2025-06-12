@@ -534,6 +534,10 @@ pub struct ExprCost {
 }
 
 impl ExprCost {
+    pub fn new(cost_lam: i32, cost_app: i32, cost_var: i32, cost_ivar: i32, cost_prim: HashMap<Symbol,i32>, cost_prim_default: i32) -> Self {
+        ExprCost { cost_lam, cost_app, cost_var, cost_ivar, cost_prim, cost_prim_default }
+    }
+
     pub fn compute_cost_prim(&self, prim: &Symbol) -> i32 {
         *self.cost_prim.get(prim).unwrap_or(&self.cost_prim_default)
     }
