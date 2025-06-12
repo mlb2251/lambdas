@@ -542,6 +542,16 @@ impl ExprCost {
         *self.cost_prim.get(prim).unwrap_or(&self.cost_prim_default)
     }
 
+    pub fn compute_cost_for_expr(&self, expr: &Node) -> i32 {
+        match expr {
+            Node::IVar(_) => self.cost_ivar,
+            Node::Var(_, _) => self.cost_var,
+            Node::Prim(p) => self.compute_cost_prim(p),
+            Node::App(_, _) => self.cost_app,
+            Node::Lam(_, _) => self.cost_lam,
+        }
+    }
+
     pub fn compute_cost_new_prim(&self) -> i32 {
         // this is used to compute the cost of a new symbol, e.g., the name of a new invention.
         self.cost_prim_default
