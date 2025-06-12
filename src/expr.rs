@@ -583,8 +583,8 @@ impl ExprCost {
     }
     pub fn num_nodes() -> ExprCost {
         ExprCost::new(
-            0,
-            0,
+            1,
+            1,
             1,
             1,
             HashMap::new(),
