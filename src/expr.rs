@@ -542,7 +542,7 @@ impl ExprCost {
         *self.cost_prim.get(prim).unwrap_or(&self.cost_prim_default)
     }
 
-    pub fn compute_cost_for_expr(&self, expr: &Node) -> i32 {
+    pub fn compute_cost_at_node(&self, expr: &Node) -> i32 {
         match expr {
             Node::IVar(_) => self.cost_ivar,
             Node::Var(_, _) => self.cost_var,
