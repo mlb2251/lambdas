@@ -17,22 +17,22 @@ impl Display for Node {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Var(i, tag) => {
-                write!(f, "${}", i)?;
+                write!(f, "${i}")?;
                 if *tag != -1 {
-                    write!(f, "_{}", tag)?;
+                    write!(f, "_{tag}")?;
                 }
                 Ok(())
             },
-            Self::Prim(p) => write!(f,"{}",p),
+            Self::Prim(p) => write!(f,"{p}"),
             Self::App(_,_) => write!(f,"app"),
             Self::Lam(_, tag) => {
                 write!(f,"lam")?;
                 if *tag != -1 {
-                    write!(f, "_{}", tag)?;
+                    write!(f, "_{tag}")?;
                 }
                 Ok(())
             },
-            Self::IVar(i) => write!(f,"#{}",i),
+            Self::IVar(i) => write!(f,"#{i}"),
         }
     }
 }
@@ -57,7 +57,7 @@ impl<'a> Display for Expr<'a> {
                 Node::Lam(b, tag) => {
                     write!(f,"(lam")?;
                     if *tag != -1 {
-                        write!(f, "_{}", tag)?;
+                        write!(f, "_{tag}")?;
                     }
                     write!(f," ")?;
                     fmt_local(e.get(*b), false, f)?;
@@ -92,7 +92,7 @@ impl ExprSet {
             let next =  s.chars().last().unwrap();
             if next == '(' {
                 s = &s[..s.len()-1];
-                let num_items = items_of_depth.pop().ok_or_else(||format!("ExprSet parse error: mismatched parens in: {}",s_init))?;
+                let num_items = items_of_depth.pop().ok_or_else(||format!("ExprSet parse error: mismatched parens in: {s_init}"))?;
                 if num_items == 0 {
                     continue
                 }
@@ -110,7 +110,7 @@ impl ExprSet {
                 if let Some(num_items) = items_of_depth.last_mut() {
                     *num_items += 1;
                 } else {
-                    return Err(format!("ExprSet parse error: mismatched parens in: {}",s_init));
+                    return Err(format!("ExprSet parse error: mismatched parens in: {s_init}"));
                 }
                 continue
             }
@@ -151,37 +151,37 @@ impl ExprSet {
                     split.next().unwrap(); // strip "lam"
                     tag = split.next().unwrap().parse::<i32>().map_err(|e|e.to_string())?;
                     if tag < 0 {
-                        return Err(format!("ExprSet parse error: lambda tag must be non-negative: {}", s_init))
+                        return Err(format!("ExprSet parse error: lambda tag must be non-negative: {s_init}"))
                     }
                 }
                 // println!("remainder: {}",s);
                 let mut eof = false;
                 if let Some(c) = s.chars().last()  {
                     if c != '(' {
-                        return Err(format!("ExprSet parse error: `lam` must always have an immediately preceding parenthesis like so `(lam` unless its at the start of the parsed string: {}",s_init))
+                        return Err(format!("ExprSet parse error: `lam` must always have an immediately preceding parenthesis like so `(lam` unless its at the start of the parsed string: {s_init}"))
                     }
                     s = &s[..s.len()-1]; // strip "("
                 } else {
                     eof = true;
                 };
 
-                let num_items = items_of_depth.pop().ok_or_else(||format!("ExprSet parse error: mismatched parens in: {}",s_init))?;
+                let num_items = items_of_depth.pop().ok_or_else(||format!("ExprSet parse error: mismatched parens in: {s_init}"))?;
                 if num_items != 1 {
-                    return Err(format!("ExprSet parse error: `lam` must always be applied to exactly one argument, like `(lam (foo bar))`: {}",s_init))
+                    return Err(format!("ExprSet parse error: `lam` must always be applied to exactly one argument, like `(lam (foo bar))`: {s_init}"))
                 }
                 let b: Idx = items.pop().unwrap();
                 items.push(self.add(Node::Lam(b, tag)));
                 // println!("added lam");
                 if eof {
                     if items.len() != 1 {
-                        return Err(format!("ExprSet parse error: mismatched parens in: {}",s_init));
+                        return Err(format!("ExprSet parse error: mismatched parens in: {s_init}"));
                     }
                     return Ok(items.pop().unwrap())
                 }
                 if let Some(num_items) = items_of_depth.last_mut() {
                     *num_items += 1;
                 } else {
-                    return Err(format!("ExprSet parse error: mismatched parens in: {}",s_init));
+                    return Err(format!("ExprSet parse error: mismatched parens in: {s_init}"));
                 }
                 continue
             }
@@ -195,7 +195,7 @@ impl ExprSet {
                         rest = split.next().unwrap();
                         tag = split.next().unwrap().parse::<i32>().map_err(|e|e.to_string())?;
                         if tag < 0 {
-                            return Err(format!("ExprSet parse error: variable tag must be non-negative: {}", s_init))
+                            return Err(format!("ExprSet parse error: variable tag must be non-negative: {s_init}"))
                         }
                     }
                     Node::Var(rest.parse::<i32>().map_err(|e|e.to_string())?, tag)
@@ -214,7 +214,7 @@ impl ExprSet {
         }
 
         if items_of_depth.len() != 1 {
-            return Err(format!("ExprSet parse error: mismatched parens in: {}",s_init));
+            return Err(format!("ExprSet parse error: mismatched parens in: {s_init}"));
         }
 
         let num_items = items_of_depth.pop().unwrap();
@@ -226,7 +226,7 @@ impl ExprSet {
             items.push(self.add(Node::App(f, x)))
         }
         if items.len() != 1 {
-            return Err(format!("ExprSet parse error: mismatched parens in: {}",s_init));
+            return Err(format!("ExprSet parse error: mismatched parens in: {s_init}"));
         }
 
         if self.order == Order::ParentFirst {
