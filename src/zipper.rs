@@ -30,7 +30,13 @@ impl LabelledZId {
 }
 
 impl<'a> Expr<'a> {
-    pub fn zip(&self, zipper: &[ZNode]) -> Self {
+    pub fn zip(&self, zipper: &'a[ZNode]) -> Self {
+        self.zip_iter(zipper.iter())
+    }
+
+    #[inline]
+    pub fn zip_iter<T>(&self, zipper: T) -> Self
+    where T: Iterator<Item = &'a ZNode> {
         let mut e = *self;
         for znode in zipper {
             e = match znode {
