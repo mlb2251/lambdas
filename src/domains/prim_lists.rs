@@ -239,7 +239,7 @@ pub static FIX: Lazy<Val> = Lazy::new(|| PrimFun(CurriedFn::new(Symbol::from("fi
 fn fix(mut args: Env, handle: &Evaluator) -> VResult {
     handle.data.borrow_mut().fix_counter += 1;
     if handle.data.borrow().fix_counter > MAX_FIX_INVOCATIONS {
-        return Err(format!("Exceeded max number of fix invocations. Max was {}", MAX_FIX_INVOCATIONS));
+        return Err(format!("Exceeded max number of fix invocations. Max was {MAX_FIX_INVOCATIONS}"));
     }
     load_args!(args, fn_val: Val, x: Val);
 
@@ -247,7 +247,7 @@ fn fix(mut args: Env, handle: &Evaluator) -> VResult {
     let fixf = handle.apply(FIX.clone(), fn_val.clone()).unwrap();
     let res = match handle.apply(fn_val, fixf) {
         Ok(ffixf) => handle.apply(ffixf, x),
-        Err(err) => Err(format!("Could not apply fixf to f: {}",err))
+        Err(err) => Err(format!("Could not apply fixf to f: {err}"))
     };
     handle.data.borrow_mut().fix_counter -= 1;
     res
@@ -336,6 +336,6 @@ mod tests {
         assert_error::<ListVal, Val>(
             "(fix1 $0 (lam (lam (if (empty? $0) $0 (cons (+ 1 (car $0)) ($1 $0))))))",
             &[arg],
-            format!("Exceeded max number of fix invocations. Max was {}", MAX_FIX_INVOCATIONS));
+            format!("Exceeded max number of fix invocations. Max was {MAX_FIX_INVOCATIONS}"));
     }
 }

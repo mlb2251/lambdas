@@ -6,9 +6,9 @@ use crate::*;
 
 /// this gets used by 
 pub fn parse(s: &str) -> Result<SlowType, String> {
-    let (ty, s_left) = parse_aux(s).map_err(|e| format!("{}\n when parsing: {}", e, s))?;
+    let (ty, s_left) = parse_aux(s).map_err(|e| format!("{e}\n when parsing: {s}"))?;
         if !s_left.is_empty() {
-            return Err(format!("Type parse() error: extra closeparen\n when parsing: {}",s))
+            return Err(format!("Type parse() error: extra closeparen\n when parsing: {s}"))
         }
     Ok(ty)
 }
@@ -81,7 +81,7 @@ fn parse_aux(mut s: &str) -> Result<(SlowType, &str), String> {
             }
 
             // arrows are a low prio operator so group everything before into one term
-            let ty_left = finish(res).map_err(|s| format!("during arrow rearranging: {}",s))?;
+            let ty_left = finish(res).map_err(|s| format!("during arrow rearranging: {s}"))?;
             // parse everything to the right
             let (ty_right, s_new) = parse_aux(&s[1..])?;
             s = s_new;

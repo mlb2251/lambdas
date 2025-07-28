@@ -170,10 +170,10 @@ impl std::fmt::Display for SlowType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fn helper(ty: &SlowType, f: &mut std::fmt::Formatter<'_>, arrow_parens: bool) -> std::fmt::Result {
             match ty {
-                SlowType::Var(i) => write!(f,"t{}", i),
+                SlowType::Var(i) => write!(f,"t{i}"),
                 SlowType::Term(name, args) => {
                     if args.is_empty() {
-                        write!(f, "{}", name)
+                        write!(f, "{name}")
                     } else if *name == *ARROW_SYM {
                         assert_eq!(args.len(), 2);
                         // write!(f, "({} {} {})", &args[0], name, &args[1])
@@ -188,7 +188,7 @@ impl std::fmt::Display for SlowType {
                         }
                         Ok(())
                     } else {
-                        write!(f, "({}", name)?;
+                        write!(f, "({name}")?;
                         for arg in args.iter() {
                             write!(f, " ")?;
                             helper(arg, f, true)?;
@@ -380,7 +380,7 @@ impl std::fmt::Display for Context {
         for (i, item) in self.subst_unionfind.iter().enumerate() {
             if let Some(ty) = item {
                 if !first { write!(f, ", ")? } else { first = false }
-                write!(f, "{}:{}", i, ty)?
+                write!(f, "{i}:{ty}")?
             }
         }
         write!(f,"}}")
