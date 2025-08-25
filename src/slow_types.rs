@@ -399,7 +399,8 @@ impl<'a> Expr<'a> {
                 ctx.unify(&f_tp, &SlowType::arrow(x_tp, return_tp.clone()))?;
                 Ok(return_tp.apply(ctx))
             },
-            Node::Lam(b, _) => {
+            Node::Lam(b, _, _) => {
+                // TOOD add arity to types
                 let var_tp = ctx.fresh_type_var();
                 // todo maybe optimize by making this a vecdeque for faster insert/remove at the zero index
                 env.push_front(var_tp.clone());
