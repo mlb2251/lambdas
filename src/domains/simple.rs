@@ -1,5 +1,15 @@
+// lambdas/src/domains/simple.rs
+
 /// This is an example domain, heavily commented to explain how to implement your own!
 use crate::*;
+#[cfg(feature = "python")]
+// use crate::domains::simple_python::{val_to_py, py_to_val};
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+// #[cfg(feature = "python")]
+// use pyo3::types::PyTuple;
+#[cfg(feature = "python")]
+use pyo3::types::PyAny;
 
 /// A simple domain with ints and polymorphic lists (allows nested lists).
 /// Generally it's good to be able to imagine the hindley milner type system
@@ -26,7 +36,6 @@ type Env = crate::eval::Env<SimpleVal>;
 
 // to more concisely refer to the variants
 use SimpleVal::*;
-
 
 // From<Val> impls are needed for unwrapping values. We can assume the program
 // has been type checked so it's okay to panic if the type is wrong. Each val variant
@@ -67,17 +76,55 @@ impl Domain for SimpleVal {
     // we dont use Data here
     type Data = ();
 
+    #[cfg(feature = "python")]
+    fn py_val_to_py(py: Python<'_>, v: crate::eval::Val<Self>) -> PyResult<Py<PyAny>> {
+        // delegate to your existing converter
+        crate::domains::simple_python::val_to_py(py, v)
+    }
+
+    #[cfg(feature = "python")]
+    fn py_py_to_val(obj: &Bound<'_, PyAny>) -> Result<crate::eval::Val<Self>, String> {
+        // delegate to your existing converter
+        crate::domains::simple_python::py_to_val(obj)
+    }
+
+    // fn new_dsl() -> DSL<Self> {
+    //     DSL::new(vec![
+    //         Production::func("+", "int -> int -> int", add),
+    //         Production::func("*", "int -> int -> int", mul),
+    //         Production::func("map", "(t0 -> t1) -> (list t0) -> (list t1)", map),
+    //         Production::func("sum", "list int -> int", sum),
+    //         Production::val("0", "int", Dom(Int(0))),
+    //         Production::val("1", "int", Dom(Int(1))),
+    //         Production::val("2", "int", Dom(Int(2))),
+    //         Production::val("[]", "(list t0)", Dom(List(vec![]))),
+    //     ])
+    // }
+
     fn new_dsl() -> DSL<Self> {
-        DSL::new(vec![
-            Production::func("+", "int -> int -> int", add),
-            Production::func("*", "int -> int -> int", mul),
+        let mut prods = vec![
+            // Production::func("+", "int -> int -> int", add),
+            // Production::func("*", "int -> int -> int", mul),
             Production::func("map", "(t0 -> t1) -> (list t0) -> (list t1)", map),
-            Production::func("sum", "list int -> int", sum),
+            // Production::func("sum", "list int -> int", sum),
             Production::val("0", "int", Dom(Int(0))),
             Production::val("1", "int", Dom(Int(1))),
             Production::val("2", "int", Dom(Int(2))),
             Production::val("[]", "(list t0)", Dom(List(vec![]))),
-        ])
+        ];
+
+        // Log the built-ins you just added
+        eprintln!("[DSL] built-ins:");
+        // eprintln!("  func * : int -> int -> int");
+        eprintln!("  func map : (t0 -> t1) -> (list t0) -> (list t1)");
+        eprintln!("  val 0 : int");
+        eprintln!("  val 1 : int");
+        eprintln!("  val 2 : int");
+        eprintln!("  val [] : (list t0)");
+
+        let dsl = DSL::new(prods);
+        // eprintln!("[DSL] build complete.");
+        dsl
     }
 
     // val_of_prim takes a symbol like "+" or "0" and returns the corresponding Val.
@@ -159,8 +206,6 @@ fn sum(mut args: Env, _handle: &Evaluator) -> VResult {
     load_args!(args, xs: Vec<i32>);
     ok(xs.iter().sum::<i32>())
 }
-
-
 
 #[cfg(test)]
 mod tests {

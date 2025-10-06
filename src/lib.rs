@@ -1,6 +1,9 @@
 #[macro_use]
 mod macros;
 
+#[cfg(feature = "python")]
+pub mod python_bridge;
+
 mod expr;
 mod dsl;
 mod eval;

@@ -3,7 +3,13 @@ use crate::*;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 use std::hash::Hash;
+use std::sync::Arc;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+#[cfg(feature = "python")]
+use pyo3::types::PyList;
+// use crate::domains::simple::SimpleVal;
 
 pub type DSLFn<D> = fn(Env<D>, &Evaluator<D>) -> VResult<D>;
 
@@ -15,11 +21,51 @@ pub struct Production<D: Domain> {
     pub arity: usize,
     pub lazy_args: HashSet<usize>,
     pub fn_ptr: Option<DSLFn<D>>,
+    #[cfg(feature = "python")]
+    pub py_fn: Option<Arc<Py<PyAny>>>,
 }
 
 impl<D:Domain> Debug for Production<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Production").field("name", &self.name).field("val", &self.val).field("tp", &self.tp).field("arity", &self.arity).finish()
+    }
+}
+
+impl<D: Domain> Production<D> {
+    // #[inline]
+    // pub fn call(&self, args: Env<D>, handle: &Evaluator<D>) -> VResult<D> {
+    //     // TEMP: still uses your existing native function pointer.
+    //     // We’ll change the internals later, but the signature will stay.
+    //     (self.fn_ptr.unwrap())(args, handle)
+    // }
+    #[inline]
+    pub fn call(&self, args: Env<D>, handle: &Evaluator<D>) -> VResult<D> {
+        #[cfg(feature = "python")]
+        if let Some(pyf) = &self.py_fn {
+            // Convert via the Domain hooks
+            return Python::with_gil(|py| {
+                use pyo3::types::PyList;
+
+                // Env<D> -> Python list
+                let mut elems: Vec<Py<PyAny>> = Vec::with_capacity(args.len());
+                for v in &args.env {
+                    elems.push(D::py_val_to_py(py, v.clone())?);
+                }
+                let list_bound = PyList::new(py, &elems)?;       // Bound<PyList>
+
+                // Call Python
+                //let ret = pyf.bind(py).call1((list_bound,))?;
+                let ret = (**pyf).bind(py).call1((list_bound,))?;
+
+                // Python -> Val<D>
+                D::py_py_to_val(&ret)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+            })
+            .map_err(|pyerr| pyerr.to_string()); // VError = String
+        }
+
+        // Otherwise fall back to the native fn pointer (existing behavior):
+        (self.fn_ptr.unwrap())(args, handle)
     }
 }
 
@@ -54,6 +100,8 @@ impl<D: Domain> Production<D> {
             arity: 0,
             lazy_args: Default::default(),
             fn_ptr: None,
+            #[cfg(feature = "python")]
+            py_fn: None,
         }
     }
 
@@ -66,6 +114,8 @@ impl<D: Domain> Production<D> {
             arity,
             lazy_args,
             fn_ptr: Some(fn_ptr),
+            #[cfg(feature = "python")]
+            py_fn: None,
         }
     }
 
@@ -98,6 +148,49 @@ impl<D: Domain> DSL<D> {
         })
     }
 
+    /// Early-capture install of a Python-backed primitive.
+    /// - `name`: symbol of the primitive
+    /// - `tp`:   its type (you already have SlowType; we use that)
+    /// - `lazy_args`: optional indices of lazy arguments; use None for strict
+    /// - `pyfunc`: owned Python callable captured into this production
+    #[cfg(feature = "python")]
+    pub fn add_python_primitive(
+        &mut self,
+        name: Symbol,
+        tp: SlowType,
+        lazy_args: Option<&[usize]>,
+        pyfunc: Py<PyAny>,
+    ) {
+        let arity = tp.arity();
+        let lazy: HashSet<usize> = lazy_args
+            .map(|xs| xs.iter().copied().collect())
+            .unwrap_or_default();
+
+        use crate::eval::{CurriedFn, Val}; // for PrimFun constructor
+
+        // Insert or update the production entry for this symbol.
+        let entry = self.productions.entry(name.clone()).or_insert_with(|| Production {
+            name: name.clone(),
+            val: Val::PrimFun(CurriedFn::<D>::new(name.clone(), arity)),
+            tp: tp.clone(),
+            arity,
+            lazy_args: lazy.clone(),
+            fn_ptr: None,          // no native body required
+            #[cfg(feature = "python")]
+            py_fn: None,           // will set below
+        });
+
+        // Keep metadata consistent if it already existed
+        entry.tp = tp;
+        entry.arity = arity;
+        entry.lazy_args = lazy;
+        entry.val = Val::PrimFun(CurriedFn::<D>::new(name, arity));
+        #[cfg(feature = "python")]
+        {entry.py_fn = Some(Arc::new(pyfunc));} // <-- early-captured callable lives here
+        // NOTE: we leave `fn_ptr` as-is; it can be None or Some(native).
+        // If you prefer “no conflict”, you can set `entry.fn_ptr = None;`
+    }
+
 }
 
 
@@ -110,5 +203,19 @@ pub trait Domain: Clone + Debug + PartialEq + Eq + Hash + Send + Sync {
     fn type_of_dom_val(&self) -> SlowType;
 
     fn new_dsl() -> DSL<Self>;
+
+    #[cfg(feature = "python")]
+    fn py_val_to_py(py: Python<'_>, v: Val<Self>) -> PyResult<Py<PyAny>> {
+        // default: not supported for this domain
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "Python bridge not implemented for this domain",
+        ))
+    }
+
+    #[cfg(feature = "python")]
+    fn py_py_to_val(_obj: &Bound<'_, PyAny>) -> Result<Val<Self>, String> {
+        Err("Python bridge not implemented for this domain".into())
+    }
+
 }
 
