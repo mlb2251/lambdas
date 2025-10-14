@@ -103,10 +103,10 @@ impl Domain for SimpleVal {
 
     fn new_dsl() -> DSL<Self> {
         let mut prods = vec![
-            // Production::func("+", "int -> int -> int", add),
-            // Production::func("*", "int -> int -> int", mul),
+            Production::func("+", "int -> int -> int", add),
+            Production::func("*", "int -> int -> int", mul),
             Production::func("map", "(t0 -> t1) -> (list t0) -> (list t1)", map),
-            // Production::func("sum", "list int -> int", sum),
+            Production::func("sum", "list int -> int", sum),
             Production::val("0", "int", Dom(Int(0))),
             Production::val("1", "int", Dom(Int(1))),
             Production::val("2", "int", Dom(Int(2))),
