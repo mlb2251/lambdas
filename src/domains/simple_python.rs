@@ -6,10 +6,10 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use pyo3::conversion::IntoPyObjectExt; // for .into_py_any on integers
 
-use crate::domains::simple::SimpleVal;
+use crate::domains::py::PyVal;
 use crate::eval;
-type Val = eval::Val<SimpleVal>;
-use SimpleVal::*;
+type Val = eval::Val<PyVal>;
+use PyVal::*;
 
 /// Rust Val<SimpleVal> -> Python object
 pub fn val_to_py(py: Python<'_>, v: Val) -> PyResult<Py<PyAny>> {
@@ -46,5 +46,5 @@ pub fn py_to_val(obj: &Bound<'_, PyAny>) -> Result<Val, String> {
         }
         return Ok(Val::from(List(out)));
     }
-    Err("unsupported Python type for SimpleVal".into())
+    Err("unsupported Python type for PyVal".into())
 }

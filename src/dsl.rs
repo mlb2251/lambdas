@@ -9,7 +9,6 @@ use std::sync::Arc;
 use pyo3::prelude::*;
 #[cfg(feature = "python")]
 use pyo3::types::PyList;
-// use crate::domains::simple::SimpleVal;
 
 pub type DSLFn<D> = fn(Env<D>, &Evaluator<D>) -> VResult<D>;
 
@@ -32,12 +31,6 @@ impl<D:Domain> Debug for Production<D> {
 }
 
 impl<D: Domain> Production<D> {
-    // #[inline]
-    // pub fn call(&self, args: Env<D>, handle: &Evaluator<D>) -> VResult<D> {
-    //     // TEMP: still uses your existing native function pointer.
-    //     // We’ll change the internals later, but the signature will stay.
-    //     (self.fn_ptr.unwrap())(args, handle)
-    // }
     #[inline]
     pub fn call(&self, args: Env<D>, handle: &Evaluator<D>) -> VResult<D> {
         #[cfg(feature = "python")]
