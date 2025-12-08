@@ -143,7 +143,7 @@ impl<D: Domain> Val<D> {
     pub fn dom(self) -> Result<D,VError> {
         match self {
             Val::Dom(d) => Ok(d),
-            _ => Err("Val::unwrap_dom: not a domain value".into())
+            _ => Err(format!("{:?}", self)) //("Val::unwrap_dom: not a domain value".into())
         }
     }
     #[inline(always)]

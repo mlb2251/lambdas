@@ -128,6 +128,13 @@ impl<D: Domain> DSL<D> {
         self.productions.insert(entry.name.clone(), entry);
     }
 
+    /// NEW: add a constant (arity 0) to the DSL
+    pub fn add_constant(&mut self, name: Symbol, tp: SlowType, val: Val<D>) {
+        assert_eq!(tp.arity(), 0);
+        let prod = Production::val_raw(name, tp, val);
+        self.add_entry(prod);
+    }
+
     /// given a primitive's symbol return a runtime Val object. For function primitives
     /// this should return a PrimFun(CurriedFn) object.
     pub fn val_of_prim(&self, p: &Symbol) -> Option<Val<D>> {
