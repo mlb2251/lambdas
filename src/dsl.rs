@@ -150,6 +150,7 @@ impl<D: Domain> DSL<D> {
             D::type_of_dom_val(&self.val_of_prim(p).unwrap().dom().unwrap())
         })
     }
+
 }
 
 
