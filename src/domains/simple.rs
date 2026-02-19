@@ -118,10 +118,10 @@ impl Domain for SimpleVal {
     }
 
 
-    }
+}
 
 
-    // *** DSL FUNCTIONS ***
+// *** DSL FUNCTIONS ***
 // See comments throughout pointing out useful aspects
 
 fn add(mut args: Env, _handle: &Evaluator) -> VResult {
