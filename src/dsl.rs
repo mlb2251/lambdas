@@ -131,6 +131,13 @@ impl<D: Domain> DSL<D> {
         self.productions.insert(entry.name.clone(), entry);
     }
 
+    /// NEW: add a constant (arity 0) to the DSL
+    pub fn add_constant(&mut self, name: Symbol, tp: SlowType, val: Val<D>) {
+        assert_eq!(tp.arity(), 0);
+        let prod = Production::val_raw(name, tp, val);
+        self.add_entry(prod);
+    }
+
     /// given a primitive's symbol return a runtime Val object. For function primitives
     /// this should return a PrimFun(CurriedFn) object.
     pub fn val_of_prim(&self, p: &Symbol) -> Option<Val<D>> {
@@ -143,44 +150,6 @@ impl<D: Domain> DSL<D> {
             D::type_of_dom_val(&self.val_of_prim(p).unwrap().dom().unwrap())
         })
     }
-
-    /// Early-capture install of a Python-backed primitive.
-    /// - `name`: symbol of the primitive
-    /// - `tp`:   type
-    /// - `lazy_args`: optional indices of lazy arguments
-    /// - `pyfunc`: owned Python callable captured into this production
-    #[cfg(feature = "python")]
-    pub fn add_python_primitive(
-        &mut self,
-        name: Symbol,
-        tp: SlowType,
-        lazy_args: Option<&[usize]>,
-        pyfunc: Py<PyAny>,
-    ) {
-        let arity = tp.arity();
-        let lazy: HashSet<usize> = lazy_args
-            .map(|xs| xs.iter().copied().collect())
-            .unwrap_or_default();
-
-        use crate::eval::{CurriedFn, Val}; // for PrimFun constructor
-
-        let entry = self.productions.entry(name.clone()).or_insert_with(|| Production {
-            name: name.clone(),
-            val: Val::PrimFun(CurriedFn::<D>::new(name.clone(), arity)),
-            tp: tp.clone(),
-            arity,
-            lazy_args: lazy.clone(),
-            fn_ptr: None,
-        });
-
-        entry.tp = tp;
-        entry.arity = arity;
-        entry.lazy_args = lazy;
-        entry.val = Val::PrimFun(CurriedFn::<D>::new(name, arity));
-        #[cfg(feature = "python")]
-        {entry.fn_ptr = Some(FnPtr::Python(Arc::new(pyfunc)));}
-    }
-
 }
 
 
