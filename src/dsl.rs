@@ -147,50 +147,6 @@ impl<D: Domain> DSL<D> {
             D::type_of_dom_val(&self.val_of_prim(p).unwrap().dom().unwrap())
         })
     }
-
-    /// Early-capture install of a Python-backed primitive.
-    /// - `name`: symbol of the primitive
-    /// - `tp`:   its type (you already have SlowType; we use that)
-    /// - `lazy_args`: optional indices of lazy arguments; use None for strict
-    /// - `pyfunc`: owned Python callable captured into this production
-    #[cfg(feature = "python")]
-    pub fn add_python_primitive(
-        &mut self,
-        name: Symbol,
-        tp: SlowType,
-        lazy_args: Option<&[usize]>,
-        pyfunc: Py<PyAny>,
-    ) {
-        let arity = tp.arity();
-        let lazy: HashSet<usize> = lazy_args
-            .map(|xs| xs.iter().copied().collect())
-            .unwrap_or_default();
-
-        use crate::eval::{CurriedFn, Val}; // for PrimFun constructor
-
-        // Insert or update the production entry for this symbol.
-        let entry = self.productions.entry(name.clone()).or_insert_with(|| Production {
-            name: name.clone(),
-            val: Val::PrimFun(CurriedFn::<D>::new(name.clone(), arity)),
-            tp: tp.clone(),
-            arity,
-            lazy_args: lazy.clone(),
-            fn_ptr: None,          // no native body required
-            #[cfg(feature = "python")]
-            py_fn: None,           // will set below
-        });
-
-        // Keep metadata consistent if it already existed
-        entry.tp = tp;
-        entry.arity = arity;
-        entry.lazy_args = lazy;
-        entry.val = Val::PrimFun(CurriedFn::<D>::new(name, arity));
-        #[cfg(feature = "python")]
-        {entry.py_fn = Some(Arc::new(pyfunc));} // <-- early-captured callable lives here
-        // NOTE: we leave `fn_ptr` as-is; it can be None or Some(native).
-        // If you prefer “no conflict”, you can set `entry.fn_ptr = None;`
-    }
-
 }
 
 

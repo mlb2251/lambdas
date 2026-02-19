@@ -4,6 +4,6 @@ pub mod simple;
 pub mod prim_lists;
 
 #[cfg(feature = "python")]
-pub mod simple_python; // <-- gate the module declaration
+pub mod simple_python;
 
 pub mod py;

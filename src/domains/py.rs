@@ -1,9 +1,9 @@
 use crate::*;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
-// #[cfg(feature = "python")]
-// use pyo3::types::PyTuple;
 #[cfg(feature = "python")]
 use pyo3::types::PyAny;
 
@@ -28,6 +28,31 @@ type Env = crate::eval::Env<PyVal>;
 
 // to more concisely refer to the variants
 use PyVal::*;
+
+#[cfg(feature = "python")]
+pub fn create_python_production<D: Domain>(
+    name: Symbol,
+    tp: SlowType,
+    lazy_args: Option<&[usize]>,
+    pyfunc: Py<PyAny>,
+) -> Production<D> {
+    let arity = tp.arity();
+    let lazy: HashSet<usize> = lazy_args
+        .map(|xs| xs.iter().copied().collect())
+        .unwrap_or_default();
+
+    use crate::eval::{CurriedFn, Val};
+
+    Production {
+        name: name.clone(),
+        val: Val::PrimFun(CurriedFn::<D>::new(name.clone(), arity)),
+        tp,
+        arity,
+        lazy_args: lazy,
+        fn_ptr: None,
+        py_fn: Some(Arc::new(pyfunc)),
+    }
+}
 
 // From<Val> impls are needed for unwrapping values. We can assume the program
 // has been type checked so it's okay to panic if the type is wrong. Each val variant
