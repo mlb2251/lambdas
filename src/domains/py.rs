@@ -1,10 +1,9 @@
 use crate::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
-#[cfg(feature = "python")]
+
 use pyo3::prelude::*;
-#[cfg(feature = "python")]
 use pyo3::types::PyAny;
 
 #[derive(Clone,Debug, PartialEq, Eq, Hash)]
@@ -19,11 +18,8 @@ pub enum PyType {
     TList
 }
 
-// aliases of various typed specialized to our PyVal
+
 type Val = crate::eval::Val<PyVal>;
-type Evaluator<'a> = crate::eval::Evaluator<'a,PyVal>;
-type VResult = crate::eval::VResult<PyVal>;
-type Env = crate::eval::Env<PyVal>;
 
 
 #[cfg(feature = "python")]
@@ -46,8 +42,7 @@ pub fn create_python_production<D: Domain>(
         tp,
         arity,
         lazy_args: lazy,
-        fn_ptr: None,
-        py_fn: Some(Arc::new(pyfunc)),
+        fn_ptr: Some(FnPtr::Python(Arc::new(pyfunc)))
     }
 }
 
@@ -58,7 +53,7 @@ pub fn create_python_production<D: Domain>(
 impl FromVal<PyVal> for i32 {
     fn from_val(v: Val) -> Result<Self, VError> {
         match v {
-            Dom(Int(i)) => Ok(i),
+            Dom(PyVal::Int(i)) => Ok(i),
             _ => Err("from_val_to_i32: not an int".into())
         }
     }
@@ -66,7 +61,7 @@ impl FromVal<PyVal> for i32 {
 impl<T: FromVal<PyVal>> FromVal<PyVal> for Vec<T> {
     fn from_val(v: Val) -> Result<Self, VError> {
         match v {
-            Dom(List(v)) => v.into_iter().map(|v| T::from_val(v)).collect(),
+            Dom(PyVal::List(v)) => v.into_iter().map(|v| T::from_val(v)).collect(),
             _ => Err("from_val_to_vec: not a list".into())
         }
     }
@@ -74,12 +69,12 @@ impl<T: FromVal<PyVal>> FromVal<PyVal> for Vec<T> {
 
 impl From<i32> for Val {
     fn from(i: i32) -> Val {
-        Dom(Int(i))
+        Dom(PyVal::Int(i))
     }
 }
 impl<T: Into<Val>> From<Vec<T>> for Val {
     fn from(vec: Vec<T>) -> Val {
-        Dom(List(vec.into_iter().map(|v| v.into()).collect()))
+        Dom(PyVal::List(vec.into_iter().map(|v| v.into()).collect()))
     }
 }
 
@@ -97,37 +92,25 @@ impl Domain for PyVal {
     }
 
     fn new_dsl() -> DSL<Self> {
-        let mut prods = vec![];
+        let prods = vec![];
         let dsl = DSL::new(prods);
         dsl
     }
 
     fn val_of_prim_fallback(p: &Symbol) -> Option<Val> {
-        // if p.chars().next().unwrap().is_ascii_digit() {
-        //     let i: i32 = p.parse().ok()?;
-        //     Some(Int(i).into())
-        // }
-        // // starts with `[` -> List (must be all ints)
-        // else if p.starts_with('[') {
-        //     let intvec: Vec<i32> = serde_json::from_str(p).ok()?;
-        //     let valvec: Vec<Val> = intvec.into_iter().map(|v|Dom(Int(v))).collect();
-        //     Some(List(valvec).into())
-        // } else {
-        //     None
-        // }
-        None    // We will add this later if we want to
+        None
     }
 
     fn type_of_dom_val(&self) -> SlowType {
         match self {
-            Int(_) => SlowType::base(Symbol::from("int")),
-            List(xs) => {
+            PyVal::Int(_) => SlowType::base(Symbol::from("int")),
+            PyVal::List(xs) => {
                 let elem_tp = if xs.is_empty() {
                     SlowType::Var(0) // (list t0)
                 } else {
-                    // todo here we just use the type of the first entry as the type
-                    Self::type_of_dom_val(&xs.first().unwrap().clone().dom().unwrap())
-                    // assert!(xs.iter().all(|v| Self::type_of_dom_val(v.clone().dom().unwrap())))
+                    let result = Self::type_of_dom_val(&xs.first().unwrap().clone().dom().unwrap());
+                    assert!(xs.iter().all(|v| result == Self::type_of_dom_val(&v.clone().dom().unwrap())));
+                    result
                 };
                 SlowType::Term("list".into(),vec![elem_tp])
             },

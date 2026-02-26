@@ -52,7 +52,7 @@ impl<D: Domain> Production<D> {
                         elems.push(obj);
                     }
 
-                    let tuple_bound = PyTuple::new(py, &elems)  // Bound<PyTuple>
+                    let tuple_bound:Bound<PyTuple> = PyTuple::new(py, &elems)
                             .map_err(|e| e.to_string())?;
 
                     let ret = (**pyf)
