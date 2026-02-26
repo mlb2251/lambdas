@@ -3,6 +3,7 @@ use crate::*;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 use std::hash::Hash;
+#[cfg(feature = "python")]
 use std::sync::Arc;
 
 #[cfg(feature = "python")]
