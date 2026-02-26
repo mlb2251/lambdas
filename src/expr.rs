@@ -165,15 +165,15 @@ impl ExprSet {
     }
 
     #[inline(always)]
-    pub fn get(&self, idx: Idx) -> Expr {
+    pub fn get(&self, idx: Idx) -> Expr<'_> {
         Expr { set: self, idx }
     }
     #[inline(always)]
-    pub fn get_mut(&mut self, idx: Idx) -> ExprMut {
+    pub fn get_mut(&mut self, idx: Idx) -> ExprMut<'_> {
         ExprMut { set: self, idx }
     }
     #[inline(always)]
-    pub fn hole(&self) -> Expr {
+    pub fn hole(&self) -> Expr<'_> {
         Expr { set: self, idx: HOLE }
     }
     /// number of Nodes in ExprSet
@@ -378,7 +378,7 @@ impl<'a> Expr<'a> {
 
 impl<'a> ExprMut<'a> {
     #[inline(always)]
-    pub fn get(&mut self, idx: Idx) -> ExprMut {
+    pub fn get(&mut self, idx: Idx) -> ExprMut<'_> {
         ExprMut { set: self.set, idx }
     }
     #[inline(always)]

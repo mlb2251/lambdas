@@ -40,7 +40,7 @@ impl SlowType {
     }
 
     /// iterates over all nodes in the term of this type
-    pub fn iter_arrows(&self) -> ArrowIter {
+    pub fn iter_arrows(&self) -> ArrowIter<'_> {
         ArrowIter { curr: self }
     }
 
