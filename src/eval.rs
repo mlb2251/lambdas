@@ -131,7 +131,7 @@ impl<D: Domain> CurriedFn<D> {
     pub fn apply(mut self, arg: Val<D>, handle: &Evaluator<D>) -> VResult<D> {
         self.partial_args.push_back(arg);
         if self.partial_args.len() == self.arity {
-            handle.dsl.productions.get(&self.name).unwrap().fn_ptr.unwrap() (self.partial_args, handle)
+            handle.dsl.productions.get(&self.name).unwrap().call(self.partial_args, handle)
         } else {
             Ok(Val::PrimFun(self))
         }
