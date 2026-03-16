@@ -26,7 +26,7 @@ pub enum Node where
     Var(i32, Tag), // db index ($i), tag
     IVar(i32), // abstraction ("invention") variable
     App(Idx,Idx), // f, x
-    Lam(Idx, Tag), // body, tag
+    Lam(Idx, i32, Tag), // body, lam count, tag
 }
 
 /// An untyped lambda calculus expression or set of expressions
@@ -85,7 +85,7 @@ impl ExprOwned {
                 Node::Var(_, _) => cost_fn.cost_var,
                 Node::Prim(p) => cost_fn.compute_cost_prim(p),
                 Node::App(_, _) => cost_fn.cost_app,
-                Node::Lam(_, _) => cost_fn.cost_lam,
+                Node::Lam(_, _, _) => cost_fn.cost_lam,
             }).sum::<i32>()
     }
     pub fn depth(&self) -> usize {
@@ -147,7 +147,7 @@ impl ExprSet {
             let span = match node {
                 Node::Var(_, _) | Node::Prim(_) | Node::IVar(_) => idx .. idx+1,
                 Node::App(f, x) => min(min(spans[f].start,spans[x].start),idx) .. max(max(spans[f].end,spans[x].end),idx+1),
-                Node::Lam(b, _) => min(spans[b].start,idx) .. max(spans[b].end,idx+1)
+                Node::Lam(b, _, _) => min(spans[b].start,idx) .. max(spans[b].end,idx+1)
             };
             spans.push(span);
         }
@@ -215,7 +215,7 @@ impl<'a> Expr<'a> {
         match self.node() {
             Node::Var(_, _) | Node::Prim(_) | Node::IVar(_) => vec![].into_iter(),
             Node::App(f, x) => vec![*f, *x].into_iter(),
-            Node::Lam(b, _) => vec![*b].into_iter()
+            Node::Lam(b, _, _) => vec![*b].into_iter()
         }
     }
     /// assuming this is an App, get the subexpression to the left
@@ -238,7 +238,7 @@ impl<'a> Expr<'a> {
     #[inline(always)]
     pub fn body(&self) -> Self {
         match self.node() {
-            Node::Lam(b, _) => self.get(*b),
+            Node::Lam(b, _, _) => self.get(*b),
             _ => panic!("get_body called on non-Lam")
         }
     }
@@ -260,7 +260,7 @@ impl<'a> Expr<'a> {
                 Node::Var(_, _) => cost_fn.cost_var,
                 Node::Prim(p) => cost_fn.compute_cost_prim(p),
                 Node::App(_, _) => cost_fn.cost_app,
-                Node::Lam(_, _) => cost_fn.cost_lam,
+                Node::Lam(_, _, _) => cost_fn.cost_lam,
             }).sum::<i32>();
         debug_assert_eq!(res, self.cost_rec(cost_fn));
         res
@@ -277,7 +277,7 @@ impl<'a> Expr<'a> {
             Node::App(f, x) => {
                 cost_fn.cost_app + self.get(*f).cost_rec(cost_fn) + self.get(*x).cost_rec(cost_fn)
             }
-            Node::Lam(b, _) => {
+            Node::Lam(b, _, _) => {
                 cost_fn.cost_lam + self.get(*b).cost_rec(cost_fn)
             }
         }
@@ -293,7 +293,7 @@ impl<'a> Expr<'a> {
             match node {
                 Node::Prim(_) | Node::Var(_, _) | Node::IVar(_) => node.clone(),
                 Node::App(f, x) => Node::App((*f as i32 + shift) as usize, (*x as i32 + shift) as usize),
-                Node::Lam(b, tag) => Node::Lam((*b as i32 + shift) as usize, *tag),
+                Node::Lam(b, arity, tag) => Node::Lam((*b as i32 + shift) as usize, *arity, *tag),
             }
         }));
 
@@ -341,9 +341,9 @@ impl<'a> Expr<'a> {
                     let x = helper(e.get(*x), other_set);
                     other_set.add(Node::App(f, x))
                 }
-                Node::Lam(b, tag) => {
+                Node::Lam(b, arity, tag) => {
                     let b = helper(e.get(*b), other_set);
-                    other_set.add(Node::Lam(b, *tag))
+                    other_set.add(Node::Lam(b, *arity, *tag))
                 }
             }
         }
@@ -360,7 +360,7 @@ impl<'a> Expr<'a> {
                 Order::ParentFirst => (*f == HOLE || *f > self.idx) && (*x == HOLE || *x > self.idx),
                 Order::Any => *f != self.idx && *x != self.idx,
             },
-            Node::Lam(b, _) => match self.set.order {
+            Node::Lam(b, _, _) => match self.set.order {
                 Order::ChildFirst => *b == HOLE || *b < self.idx,
                 Order::ParentFirst => *b == HOLE || *b > self.idx,
                 Order::Any => *b != self.idx,
@@ -411,7 +411,7 @@ impl<'a> ExprMut<'a> {
                     *y = idx;    
                 }
             },
-            Node::Lam(b, _) => {
+            Node::Lam(b, _, _) => {
                 assert_eq!(*b, HOLE, "invalid expand() on non-hole");
                 *b = idx
             }
@@ -428,7 +428,7 @@ impl<'a> ExprMut<'a> {
                 assert_eq!(*y, HOLE, "invalid expand_right() on non-hole");
                 *y = idx;
             },
-            Node::Lam(b, _) => {
+            Node::Lam(b, _, _) => {
                 assert_eq!(*b, HOLE, "invalid expand_right() on non-hole");
                 *b = idx
             }
@@ -447,7 +447,7 @@ impl<'a> ExprMut<'a> {
                     *x = HOLE;    
                 }
             },
-            Node::Lam(b, _) => {
+            Node::Lam(b, _, _) => {
                 *b = HOLE
             }
             _ => panic!("invalid unexpand() on non-lam non-app: {:?}", self.node())
@@ -464,7 +464,7 @@ impl<'a> ExprMut<'a> {
                     *y = HOLE;
                 }
             },
-            Node::Lam(b, _) => {
+            Node::Lam(b, _, _) => {
                 *b = HOLE
             }
             _ => panic!("invalid unexpand_right() on non-lam non-app: {:?}", self.node())
@@ -490,9 +490,9 @@ impl<'a> ExprMut<'a> {
                 let x = self.get(x).shift(incr_by, init_depth, analyzed_free_vars);
                 self.set.add(Node::App(f, x))
             },
-            Node::Lam(b, tag) => {
-                let b = self.get(b).shift(incr_by, init_depth+1, analyzed_free_vars);
-                self.set.add(Node::Lam(b, tag))
+            Node::Lam(b, arity, tag) => {
+                let b = self.get(b).shift(incr_by, init_depth+arity, analyzed_free_vars);
+                self.set.add(Node::Lam(b, arity, tag))
             },
         }
     }
@@ -643,7 +643,7 @@ mod tests {
         let app1 = e.add(Node::App(HOLE,HOLE));
         let app2 = e.add(Node::App(HOLE,HOLE));
         let plus = e.add(Node::Prim("+".into()));
-        let lam = e.add(Node::Lam(HOLE, -1));
+        let lam = e.add(Node::Lam(HOLE, 1, -1));
         e.get_mut(app1).expand(app2);
         e.get_mut(app2).expand(plus);
         e.get_mut(app1).expand(lam);
@@ -692,6 +692,10 @@ mod tests {
         assert_eq!(AnalyzedExpr::new(FreeVarAnalysis).analyze_get(e.get(idx)), &vec![0].into_iter().collect::<FxHashSet<i32>>());
         assert_eq!(AnalyzedExpr::new(IVarAnalysis).analyze_get(e.get(idx)), &vec![0].into_iter().collect::<FxHashSet<i32>>());
 
+        let idx_2 = e.parse_extend("(lam (lam ($1 #0 $7 $8 $3)))").unwrap();
+        assert_eq!(AnalyzedExpr::new(FreeVarAnalysis).analyze_get(e.get(idx_2)), &vec![1, 5, 6].into_iter().collect::<FxHashSet<i32>>());
 
+        let idx_3 = e.parse_extend("(lam:2 ($1 #0 $7 $8 $3))").unwrap();
+        assert_eq!(AnalyzedExpr::new(FreeVarAnalysis).analyze_get(e.get(idx_3)), &vec![1, 5, 6].into_iter().collect::<FxHashSet<i32>>());
     }
 }

@@ -74,7 +74,7 @@ impl Analysis for ExprCost {
             Node::App(f, x) => {
                 analyzed.shared.cost_app + analyzed.nodes[*f] + analyzed.nodes[*x] 
             }
-            Node::Lam(b, _) => {
+            Node::Lam(b, _, _) => {
                 analyzed.shared.cost_lam + analyzed.nodes[*b]
             }
         }
@@ -91,7 +91,7 @@ impl Analysis for &ExprCost {
             Node::App(f, x) => {
                 analyzed.shared.cost_app + analyzed.nodes[*f] + analyzed.nodes[*x] 
             }
-            Node::Lam(b, _) => {
+            Node::Lam(b, _, _) => {
                 analyzed.shared.cost_lam + analyzed.nodes[*b]
             }
         }
@@ -111,7 +111,7 @@ impl Analysis for DepthAnalysis {
             Node::App(f, x) => {
                 1 + std::cmp::max(analyzed.nodes[*f], analyzed.nodes[*x])
             }
-            Node::Lam(b, _) => {
+            Node::Lam(b, _, _) => {
                 1 + analyzed.nodes[*b]
             }
         }
@@ -134,10 +134,10 @@ impl Analysis for FreeVarAnalysis {
                 free.extend(analyzed[*f].iter());
                 free.extend(analyzed[*x].iter());
             }
-            Node::Lam(b, _) => {
+            Node::Lam(b, count, _) => {
                 free.extend(analyzed[*b].iter()
-                    .filter(|i| **i > 0)    
-                    .map(|i| i - 1)
+                    .filter(|i| **i > count - 1)    
+                    .map(|i| i - count)
                 );
             }
         }
@@ -161,7 +161,7 @@ impl Analysis for IVarAnalysis {
                 free.extend(analyzed[*f].iter());
                 free.extend(analyzed[*x].iter());
             }
-            Node::Lam(b, _) => {
+            Node::Lam(b, _, _) => {
                 free.extend(analyzed[*b].iter());
             }
         }

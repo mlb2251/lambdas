@@ -25,8 +25,11 @@ impl Display for Node {
             },
             Self::Prim(p) => write!(f,"{p}"),
             Self::App(_,_) => write!(f,"app"),
-            Self::Lam(_, tag) => {
+            Self::Lam(_, arity, tag) => {
                 write!(f,"lam")?;
+                if *arity != 1 {
+                    write!(f, ":{}", arity)?;
+                }
                 if *tag != -1 {
                     write!(f, "_{tag}")?;
                 }
@@ -54,8 +57,11 @@ impl<'a> Display for Expr<'a> {
                     fmt_local(e.get(*x), false, f)?;
                     if !left_of_app { write!(f,")") } else { Ok(()) }
                 },
-                Node::Lam(b, tag) => {
+                Node::Lam(b, arity, tag) => {
                     write!(f,"(lam")?;
+                    if *arity != 1 {
+                        write!(f, ":{}", arity)?;
+                    }
                     if *tag != -1 {
                         write!(f, "_{tag}")?;
                     }
@@ -143,9 +149,22 @@ impl ExprSet {
             s = &s[..start];
 
             if item_str == "lam" || item_str == "lambda"
-                || item_str.starts_with("lam_") || item_str.starts_with("lambda_") {
+            || item_str.starts_with("lam_") || item_str.starts_with("lambda_")
+            || item_str.starts_with("lam:") || item_str.starts_with("lambda:") {
                 // split on _ and parse the number
                 let mut tag = -1;
+                let mut arity = 1;
+                if item_str.contains(':') {
+                    // the number after : but potentially before _, or just after : if no _
+                    let mut split = item_str.split(':');
+                    split.next().unwrap(); // strip "lam"
+                    let mut arity_str = split.next().unwrap();
+                    if arity_str.contains('_') {
+                        let mut split = arity_str.split('_');
+                        arity_str = split.next().unwrap();
+                    }
+                    arity = arity_str.parse::<i32>().map_err(|e|e.to_string())?;
+                }
                 if item_str.contains('_') {
                     let mut split = item_str.split('_');
                     split.next().unwrap(); // strip "lam"
@@ -170,7 +189,7 @@ impl ExprSet {
                     return Err(format!("ExprSet parse error: `lam` must always be applied to exactly one argument, like `(lam (foo bar))`: {s_init}"))
                 }
                 let b: Idx = items.pop().unwrap();
-                items.push(self.add(Node::Lam(b, tag)));
+                items.push(self.add(Node::Lam(b, arity, tag)));
                 // println!("added lam");
                 if eof {
                     if items.len() != 1 {
@@ -283,8 +302,8 @@ mod tests {
         assert_eq!(set.get(e).node(), &Node::Var(23, 0));
 
         let e = set.parse_extend("(lam_123 (+ $0_1 $1_1))").unwrap();
-        let (_, tag) = match set.get(e).node() {
-            Node::Lam(body, tag) => (*body, *tag),
+        let (_, _, tag) = match set.get(e).node() {
+            Node::Lam(body, arity, tag) => (*body, *arity, *tag),
             x => panic!("expected lam, got {}", x)
         };
         assert_eq!(tag, 123);
