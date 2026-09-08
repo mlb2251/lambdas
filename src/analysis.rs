@@ -65,7 +65,7 @@ impl Analysis for () {
 }
 
 impl Analysis for ExprCost {
-    type Item = i32;
+    type Item = i64;
     fn new(e: Expr, analyzed: &AnalyzedExpr<Self>) -> Self::Item {
         match e.node() {
             Node::IVar(_) => analyzed.shared.cost_ivar,
@@ -82,7 +82,7 @@ impl Analysis for ExprCost {
 }
 
 impl Analysis for &ExprCost {
-    type Item = i32;
+    type Item = i64;
     fn new(e: Expr, analyzed: &AnalyzedExpr<Self>) -> Self::Item {
         match e.node() {
             Node::IVar(_) => analyzed.shared.cost_ivar,
