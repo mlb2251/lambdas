@@ -77,7 +77,7 @@ impl ExprOwned {
     pub fn as_mut(&mut self) -> ExprMut<'_> {
         ExprMut { set: &mut self.set, idx: self.idx }
     }
-    pub fn cost(&self, cost_fn: &ExprCost) -> i32 {
+    pub fn cost(&self, cost_fn: &ExprCost) -> i64 {
         assert!(self.set.struct_hash.is_none());
         self.set.iter().map(|i|
             match self.set.get(i).node() {
@@ -86,7 +86,7 @@ impl ExprOwned {
                 Node::Prim(p) => cost_fn.compute_cost_prim(p),
                 Node::App(_, _) => cost_fn.cost_app,
                 Node::Lam(_, _) => cost_fn.cost_lam,
-            }).sum::<i32>()
+            }).sum::<i64>()
     }
     pub fn depth(&self) -> usize {
         *AnalyzedExpr::new(DepthAnalysis).analyze_get(self.immut())
@@ -252,7 +252,7 @@ impl<'a> Expr<'a> {
     }
     /// get the cost of this Expr by assuming that span() contains
     /// each node in the expression exactly once
-    pub fn cost_span(&self, cost_fn: &ExprCost) -> i32 {
+    pub fn cost_span(&self, cost_fn: &ExprCost) -> i64 {
         assert!(self.set.struct_hash.is_none());
         let res = self.iter_span().map(|i|
             match self.set.get(i).node() {
@@ -261,7 +261,7 @@ impl<'a> Expr<'a> {
                 Node::Prim(p) => cost_fn.compute_cost_prim(p),
                 Node::App(_, _) => cost_fn.cost_app,
                 Node::Lam(_, _) => cost_fn.cost_lam,
-            }).sum::<i32>();
+            }).sum::<i64>();
         debug_assert_eq!(res, self.cost_rec(cost_fn));
         res
     }
@@ -269,7 +269,7 @@ impl<'a> Expr<'a> {
     /// get the cost of this Expr recursively - this may be slower than other
     /// cost methods but works for any Expr regardless of whether precise spans
     /// are available
-    pub fn cost_rec(&self, cost_fn: &ExprCost) -> i32 {
+    pub fn cost_rec(&self, cost_fn: &ExprCost) -> i64 {
         match self.node() {
             Node::IVar(_) => cost_fn.cost_ivar,
             Node::Var(_, _) => cost_fn.cost_var,
@@ -370,7 +370,7 @@ impl<'a> Expr<'a> {
 
     // /// non-recursive bottom up approach to calculating cost for when order is child-first. struct_hash-aware.
     // /// this will calculate the cost of *everything* in self.set (up to self.idx) which may be a lot!
-    // pub fn cost_bottom_up(&self, cost_fn: &ExprCost) -> i32 {
+    // pub fn cost_bottom_up(&self, cost_fn: &ExprCost) -> i64 {
     //     assert_eq!(self.set.order, Order::ChildFirst);
     //     *AnalyzedExpr::new(cost_fn).update(*self)
     // }
@@ -525,24 +525,24 @@ impl<'a> ExprMut<'a> {
 /// `ivar` and `var` and `prim` cost 100.
 #[derive(Debug,Clone)]
 pub struct ExprCost {
-    pub cost_lam: i32,
-    pub cost_app: i32,
-    pub cost_var: i32,
-    pub cost_ivar: i32,
-    cost_prim: HashMap<Symbol,i32>,
-    cost_prim_default: i32,
+    pub cost_lam: i64,
+    pub cost_app: i64,
+    pub cost_var: i64,
+    pub cost_ivar: i64,
+    cost_prim: HashMap<Symbol,i64>,
+    cost_prim_default: i64,
 }
 
 impl ExprCost {
-    pub fn new(cost_lam: i32, cost_app: i32, cost_var: i32, cost_ivar: i32, cost_prim: HashMap<Symbol,i32>, cost_prim_default: i32) -> Self {
+    pub fn new(cost_lam: i64, cost_app: i64, cost_var: i64, cost_ivar: i64, cost_prim: HashMap<Symbol,i64>, cost_prim_default: i64) -> Self {
         ExprCost { cost_lam, cost_app, cost_var, cost_ivar, cost_prim, cost_prim_default }
     }
 
-    pub fn compute_cost_prim(&self, prim: &Symbol) -> i32 {
+    pub fn compute_cost_prim(&self, prim: &Symbol) -> i64 {
         *self.cost_prim.get(prim).unwrap_or(&self.cost_prim_default)
     }
 
-    pub fn compute_cost_at_node(&self, expr: &Node) -> i32 {
+    pub fn compute_cost_at_node(&self, expr: &Node) -> i64 {
         match expr {
             Node::IVar(_) => self.cost_ivar,
             Node::Var(_, _) => self.cost_var,
@@ -552,7 +552,7 @@ impl ExprCost {
         }
     }
 
-    pub fn compute_cost_new_prim(&self) -> i32 {
+    pub fn compute_cost_new_prim(&self) -> i64 {
         // this is used to compute the cost of a new symbol, e.g., the name of a new invention.
         self.cost_prim_default
     }
